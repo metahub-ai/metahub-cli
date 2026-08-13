@@ -1,0 +1,44 @@
+name: Gitleaks
+
+# Secret scanning for a PUBLIC repo whose code was extracted from a private
+# monorepo — the exact situation where a stray key gets published. Runs as its
+# own workflow rather than a CI job so failures aren't buried under the
+# build/test signal, and so we can fetch full history (`fetch-depth: 0`):
+# Gitleaks needs every commit, since deleting a key from HEAD leaves it in
+# history.
+#
+# Uses the upstream Gitleaks binary rather than `gitleaks/gitleaks-action`,
+# which requires a per-org license for GitHub organization accounts. The
+# binary itself is MIT-licensed and unrestricted.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: gitleaks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so every commit is scanned, not just the HEAD tree.
+          fetch-depth: 0
+
+      - name: Install Gitleaks
+        run: |
+          VERSION=8.28.0
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan history for secrets
+        run: gitleaks detect --source . --redact --verbose

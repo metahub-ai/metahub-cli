@@ -1,0 +1,54 @@
+{
+  "name": "metahub-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MetaHub client toolchain — the `mh` CLI, the MetaHub MCP server, and the auth + installer libraries they share.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metahub-ai/metahub-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/metahub-ai/metahub-cli/issues"
+  },
+  "homepage": "https://github.com/metahub-ai/metahub-cli#readme",
+  "keywords": [
+    "metahub",
+    "cli",
+    "mh",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "claude-code",
+    "cursor",
+    "skills",
+    "agents",
+    "plugins"
+  ],
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm -r run test",
+    "test:coverage": "pnpm -r run test:coverage",
+    "verify": "pnpm run build && pnpm run typecheck && pnpm run lint && pnpm run test",
+    "bundle": "pnpm --filter @metahub/cli bundle",
+    "clean": "pnpm -r run clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "sync:shared": "bash scripts/sync-shared.sh",
+    "tarball:monorepo": "bash scripts/copy-tarball-to-monorepo.sh"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.9",
+    "eslint": "^10.5.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "prettier": "^3.3.0",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

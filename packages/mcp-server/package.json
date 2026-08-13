@@ -1,0 +1,47 @@
+{
+  "name": "@metahub/mcp-server",
+  "version": "0.1.0",
+  "description": "MetaHub MCP server — search and install AI artifacts from inside any MCP-capable AI client.",
+  "type": "module",
+  "bin": {
+    "metahub-mcp": "./bin/metahub-mcp.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run clean && pnpm run build",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@metahub/auth": "workspace:*",
+    "@metahub/installer": "workspace:*",
+    "@metahub/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@metahub/eslint-config": "workspace:*",
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "homepage": "https://registry.metahub.ai/mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metahub-ai/metahub-cli.git",
+    "directory": "packages/mcp-server"
+  },
+  "license": "MIT"
+}

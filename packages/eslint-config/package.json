@@ -1,0 +1,26 @@
+{
+  "name": "@metahub/eslint-config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared ESLint flat config. Includes boundary enforcement so apps can't import from one another.",
+  "type": "module",
+  "main": "./base.mjs",
+  "files": [
+    "base.mjs",
+    "next.mjs",
+    "library.mjs"
+  ],
+  "exports": {
+    "./base": "./base.mjs",
+    "./next": "./next.mjs",
+    "./library": "./library.mjs"
+  },
+  "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint-plugin-import": "^2.30.0",
+    "typescript-eslint": "^8.61.0"
+  },
+  "peerDependencies": {
+    "eslint": "^10.0.0"
+  }
+}

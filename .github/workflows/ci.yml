@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify (build + typecheck + lint + test)
+        run: pnpm verify
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Standalone bundle
+        run: pnpm bundle
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: mh-standalone-tarball
+          path: packages/cli/standalone/mh-latest.tgz

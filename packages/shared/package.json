@@ -1,0 +1,47 @@
+{
+  "name": "@metahub/shared",
+  "version": "0.1.0",
+  "description": "Wire-format types and API contracts shared across portal, registry, CLI, and SDK.",
+  "license": "MIT",
+  "homepage": "https://registry.metahub.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metahub-ai/metahub-monorepo.git",
+    "directory": "packages/shared"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "pnpm run build"
+  },
+  "devDependencies": {
+    "@metahub/eslint-config": "workspace:*",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

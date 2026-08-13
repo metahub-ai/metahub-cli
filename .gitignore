@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+coverage/
+
+# Standalone CLI tarball (built by `pnpm bundle`)
+packages/cli/standalone/
+*.tgz
+
+# Env + OS noise
+.env
+.env.*
+.DS_Store

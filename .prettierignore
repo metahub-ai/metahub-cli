@@ -1,0 +1,9 @@
+# Build output & dependencies
+**/dist/
+**/coverage/
+**/node_modules/
+**/standalone/
+**/*.min.js
+
+# Lockfile
+pnpm-lock.yaml

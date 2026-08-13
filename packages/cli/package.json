@@ -1,0 +1,65 @@
+{
+  "name": "@metahub/cli",
+  "version": "0.1.0",
+  "description": "MetaHub CLI — install, update, search, list, and uninstall AI artifacts.",
+  "license": "MIT",
+  "homepage": "https://registry.metahub.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metahub-ai/metahub-cli.git",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "metahub",
+    "cli",
+    "mh",
+    "ai",
+    "claude-code",
+    "cursor",
+    "mcp",
+    "skills",
+    "agents",
+    "plugins"
+  ],
+  "type": "module",
+  "bin": {
+    "mh": "./bin/mh.js",
+    "metahub-mcp": "./bin/metahub-mcp.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist standalone",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "pnpm run build",
+    "bundle": "node scripts/build-standalone.mjs",
+    "publish:standalone": "pnpm run bundle && npm publish standalone/package --access public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@metahub/auth": "workspace:*",
+    "@metahub/installer": "workspace:*",
+    "@metahub/mcp-server": "workspace:*",
+    "@metahub/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@metahub/eslint-config": "workspace:*",
+    "@types/node": "^25.9.1",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
