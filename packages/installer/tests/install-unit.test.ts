@@ -147,18 +147,227 @@ describe("installArtifact", () => {
     expect(fs.existsSync(path.join(dest, "SKILL.md"))).toBe(true);
   });
 
-  it("forwards repoPath as the tarball subPath when present", async () => {
+  it("extracts the full repo into staging and promotes the repoPath sub-dir", async () => {
     getInstallInfo.mockResolvedValue(infoFixture({ artifact: { repoPath: "skills/pdf" } }));
+    // The tarball mock receives the STAGING dir now (skills extract the
+    // whole repo first so related skills can be discovered).
+    fetchAndExtractTarball.mockImplementation(async (_url: string, dest: string) => {
+      fs.mkdirSync(path.join(dest, "skills", "pdf"), { recursive: true });
+      fs.writeFileSync(path.join(dest, "skills", "pdf", "SKILL.md"), "# pdf");
+      fs.writeFileSync(path.join(dest, "README.md"), "# repo root");
+    });
     const { installArtifact } = await import("../src/install");
+    const { installPathFor } = await import("../src/paths");
     const events: Array<{ stage: string; subPath?: string | null }> = [];
-    await installArtifact({ kind: "skill", slug: "pdf", onProgress: (e) => events.push(e) });
+    const result = await installArtifact({
+      kind: "skill",
+      slug: "pdf",
+      onProgress: (e) => events.push(e),
+    });
 
     const download = events.find((e) => e.stage === "download");
     expect(download?.subPath).toBe("skills/pdf");
-    // The subPath is threaded into fetchAndExtractTarball's options.
-    const opts = fetchAndExtractTarball.mock.calls[0]![2] as { subPath: string | null };
-    expect(opts.subPath).toBe("skills/pdf");
+    // Skills no longer thread subPath into fetchAndExtractTarball —
+    // the full repo lands in staging and install.ts promotes the
+    // sub-dir itself.
+    const opts = fetchAndExtractTarball.mock.calls[0]![2] as { subPath?: string } | undefined;
+    expect(opts?.subPath).toBeUndefined();
+    // Only the sub-dir's contents land at the install path.
+    const dest = installPathFor("skill", "pdf");
+    expect(result.installPath).toBe(dest);
+    expect(fs.existsSync(path.join(dest, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(dest, "README.md"))).toBe(false);
   });
+
+  it("throws when the repoPath sub-dir is missing from the archive", async () => {
+    getInstallInfo.mockResolvedValue(infoFixture({ artifact: { repoPath: "skills/missing" } }));
+    fetchAndExtractTarball.mockImplementation(async (_url: string, dest: string) => {
+      fs.mkdirSync(dest, { recursive: true });
+    });
+    const { installArtifact } = await import("../src/install");
+    await expect(installArtifact({ kind: "skill", slug: "pdf" })).rejects.toThrow(/not found/);
+  });
+
+  it("installs related skills declared by the repo's marketplace.json", async () => {
+    getInstallInfo.mockResolvedValue(infoFixture({ artifact: { repoPath: "aurora" } }));
+    fetchAndExtractTarball.mockImplementation(async (_url: string, dest: string) => {
+      fs.mkdirSync(path.join(dest, ".claude-plugin"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dest, ".claude-plugin", "marketplace.json"),
+        JSON.stringify({
+          plugins: [{ name: "aurora", source: "./", skills: ["./esphome", "./home-assistant"] }],
+        }),
+      );
+      for (const name of ["aurora", "esphome", "home-assistant"]) {
+        fs.mkdirSync(path.join(dest, name), { recursive: true });
+        fs.writeFileSync(path.join(dest, name, "SKILL.md"), `# ${name}`);
+      }
+    });
+    const { installArtifact, listInstalled } = await import("../src/install");
+    const { installPathFor } = await import("../src/paths");
+    const result = await installArtifact({ kind: "skill", slug: "aurora" });
+
+    expect(result.relatedSkills.map((r) => r.slug).sort()).toEqual(["esphome", "home-assistant"]);
+    for (const name of ["aurora", "esphome", "home-assistant"]) {
+      const dir = installPathFor("skill", name);
+      expect(fs.existsSync(path.join(dir, "SKILL.md"))).toBe(true);
+    }
+    // Every skill gets the full wiring treatment (sidecar + mirrors +
+    // wiring ledger) — wireHook is called once per skill.
+    const wiredSlugs = wireHook.mock.calls.map((c) => (c[0] as { slug: string }).slug);
+    expect(wiredSlugs.sort()).toEqual(["aurora", "esphome", "home-assistant"]);
+    // Each related skill is its own ledger row, tagged with the skill
+    // that pulled it in.
+    const installed = await listInstalled();
+    expect(installed.map((i) => i.slug).sort()).toEqual(["aurora", "esphome", "home-assistant"]);
+    for (const row of installed) {
+      if (row.slug === "aurora") expect(row.installedWith).toBeUndefined();
+      else expect(row.installedWith).toBe("aurora");
+    }
+  });
+
+  it("installs related skills from nested plugin layouts and string container paths", async () => {
+    getInstallInfo.mockResolvedValue(
+      infoFixture({ artifact: { slug: "quality", repoPath: "extensions/quality/orchestrator" } }),
+    );
+    fetchAndExtractTarball.mockImplementation(async (_url: string, dest: string) => {
+      fs.mkdirSync(path.join(dest, ".claude-plugin"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dest, ".claude-plugin", "marketplace.json"),
+        JSON.stringify({
+          metadata: { pluginRoot: "./extensions" },
+          plugins: [{ name: "quality", source: "./quality" }],
+        }),
+      );
+      fs.mkdirSync(path.join(dest, "extensions/quality/.claude-plugin"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dest, "extensions/quality/.claude-plugin/plugin.json"),
+        JSON.stringify({ name: "quality", skills: "./custom/deep/skills" }),
+      );
+      for (const rel of [
+        "extensions/quality/orchestrator",
+        "extensions/quality/custom/deep/skills/security",
+        "extensions/quality/custom/deep/skills/performance",
+        "extensions/quality/skills/conventional",
+      ]) {
+        fs.mkdirSync(path.join(dest, rel), { recursive: true });
+        fs.writeFileSync(path.join(dest, rel, "SKILL.md"), `# ${path.basename(rel)}`);
+      }
+    });
+
+    const { installArtifact } = await import("../src/install");
+    const { installPathFor } = await import("../src/paths");
+    const result = await installArtifact({ kind: "skill", slug: "quality" });
+
+    expect(result.relatedSkills.map((r) => r.slug).sort()).toEqual([
+      "conventional",
+      "performance",
+      "security",
+    ]);
+    expect(fs.existsSync(path.join(installPathFor("skill", "quality"), "SKILL.md"))).toBe(true);
+    for (const slug of ["conventional", "performance", "security"]) {
+      expect(fs.existsSync(path.join(installPathFor("skill", slug), "SKILL.md"))).toBe(true);
+    }
+  });
+
+  it("does not clobber a related skill installed standalone", async () => {
+    getInstallInfo.mockResolvedValue(infoFixture({ artifact: { repoPath: "aurora" } }));
+    fetchAndExtractTarball.mockImplementation(async (_url: string, dest: string) => {
+      fs.mkdirSync(path.join(dest, ".claude-plugin"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dest, ".claude-plugin", "marketplace.json"),
+        JSON.stringify({ plugins: [{ name: "aurora", source: "./", skills: ["./esphome"] }] }),
+      );
+      for (const name of ["aurora", "esphome"]) {
+        fs.mkdirSync(path.join(dest, name), { recursive: true });
+        fs.writeFileSync(path.join(dest, name, "SKILL.md"), `# ${name}`);
+      }
+    });
+
+    const { installArtifact } = await import("../src/install");
+    const { installPathFor } = await import("../src/paths");
+    const { recordInstall } = await import("../src/installs");
+    // esphome was installed standalone earlier (no installedWith).
+    recordInstall({
+      artifactId: "art_esphome",
+      installId: "ins_esphome",
+      slug: "esphome",
+      kind: "skill",
+      version: null,
+      installPath: installPathFor("skill", "esphome"),
+      ingestApiKey: "mhi_esphome",
+      publishedSha: "sha-esphome",
+      installedAt: "2026-01-01T00:00:00Z",
+    });
+    fs.mkdirSync(installPathFor("skill", "esphome"), { recursive: true });
+    fs.writeFileSync(path.join(installPathFor("skill", "esphome"), "MINE.md"), "keep me");
+
+    const result = await installArtifact({ kind: "skill", slug: "aurora" });
+    expect(result.relatedSkills).toEqual([]);
+    // Standalone install untouched.
+    expect(fs.existsSync(path.join(installPathFor("skill", "esphome"), "MINE.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installPathFor("skill", "aurora"), "SKILL.md"))).toBe(true);
+  });
+
+  it("refreshes related skills previously installed as satellites of the same skill", async () => {
+    getInstallInfo.mockResolvedValue(infoFixture({ artifact: { repoPath: "aurora" } }));
+    fetchAndExtractTarball.mockImplementation(async (_url: string, dest: string) => {
+      fs.mkdirSync(path.join(dest, ".claude-plugin"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dest, ".claude-plugin", "marketplace.json"),
+        JSON.stringify({ plugins: [{ name: "aurora", source: "./", skills: ["./esphome"] }] }),
+      );
+      for (const name of ["aurora", "esphome"]) {
+        fs.mkdirSync(path.join(dest, name), { recursive: true });
+        fs.writeFileSync(path.join(dest, name, "SKILL.md"), `# ${name} v2`);
+      }
+    });
+
+    const { installArtifact } = await import("../src/install");
+    const { installPathFor } = await import("../src/paths");
+    const { recordInstall } = await import("../src/installs");
+    // esphome was installed as a satellite of aurora earlier.
+    recordInstall({
+      artifactId: "art_esphome",
+      installId: "ins_esphome",
+      slug: "esphome",
+      kind: "skill",
+      version: null,
+      installPath: installPathFor("skill", "esphome"),
+      ingestApiKey: "mhi_esphome",
+      publishedSha: "sha-old",
+      installedAt: "2026-01-01T00:00:00Z",
+      installedWith: "aurora",
+    });
+
+    const result = await installArtifact({ kind: "skill", slug: "aurora" });
+    expect(result.relatedSkills.map((r) => r.slug)).toEqual(["esphome"]);
+    expect(fs.readFileSync(path.join(installPathFor("skill", "esphome"), "SKILL.md"), "utf8")).toBe(
+      "# esphome v2",
+    );
+  });
+
+  for (const kind of ["mcp", "agent", "plugin"] as const) {
+    it(`keeps ${kind} installs on the direct subPath extraction path`, async () => {
+      getInstallInfo.mockResolvedValue(
+        infoFixture({
+          artifact: {
+            id: `art_${kind}`,
+            slug: `${kind}-fixture`,
+            kind,
+            repoPath: `packages/${kind}/fixture`,
+          },
+        }),
+      );
+      const { installArtifact } = await import("../src/install");
+      const result = await installArtifact({ kind, slug: `${kind}-fixture` });
+      // Non-skill kinds still thread subPath straight into the extractor
+      // and never run related-skill discovery.
+      const opts = fetchAndExtractTarball.mock.calls[0]![2] as { subPath: string | null };
+      expect(opts.subPath).toBe(`packages/${kind}/fixture`);
+      expect(result.relatedSkills).toEqual([]);
+    });
+  }
 
   it("falls back to null sha / version when the portal omits them", async () => {
     getInstallInfo.mockResolvedValue(

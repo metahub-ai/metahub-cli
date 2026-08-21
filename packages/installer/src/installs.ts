@@ -17,6 +17,15 @@ export interface InstalledRecord {
   ingestApiKey: string;
   publishedSha: string | null;
   installedAt: string;
+  /**
+   * For skills installed as a sibling of another skill (the
+   * specialist skills a repo's marketplace.json groups with the
+   * requested one): the slug of the skill that pulled this in.
+   * Undefined for standalone installs. Lets updates move satellites
+   * with their parent while never clobbering a standalone install,
+   * and lets uninstall hint at what else came along.
+   */
+  installedWith?: string;
 }
 
 interface Store {

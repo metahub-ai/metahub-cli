@@ -21,12 +21,16 @@ async function pipeTarball(body: Readable, dest: string, stripComponents: number
   const tar = spawn("tar", ["-xz", "-C", dest, `--strip-components=${stripComponents}`], {
     stdio: ["pipe", "inherit", "inherit"],
   });
-  await pipeline(body, tar.stdin!);
-  await new Promise<void>((resolve, reject) => {
-    tar.on("exit", (code) =>
+  // Start observing the child before streaming its input. On fast systems tar
+  // can consume a small archive and exit before `pipeline()` settles; attaching
+  // the listener afterwards misses the event and leaves the install hanging.
+  const tarClosed = new Promise<void>((resolve, reject) => {
+    tar.once("error", reject);
+    tar.once("close", (code) =>
       code === 0 ? resolve() : reject(new Error(`tar exited with ${code}`)),
     );
   });
+  await Promise.all([pipeline(body, tar.stdin!), tarClosed]);
 }
 
 export interface ExtractOptions {

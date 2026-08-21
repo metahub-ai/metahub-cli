@@ -261,6 +261,8 @@ describe("buildServer (integration via InMemoryTransport)", () => {
       version: "1.0.0",
       installPath: "/home/me/.claude/skills/pdf",
       clientsWired: [],
+      skillMirrors: [],
+      relatedSkills: [],
     };
     const installArtifact = (async () =>
       fixtureResult) as unknown as BuildServerOptions["installArtifact"];

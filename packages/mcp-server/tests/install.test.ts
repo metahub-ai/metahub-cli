@@ -17,6 +17,8 @@ function makeResult(overrides: Partial<InstallResult> = {}): InstallResult {
     version: "1.0.0",
     installPath: "/home/me/.claude/skills/pdf",
     clientsWired: [],
+    skillMirrors: [],
+    relatedSkills: [],
     ...overrides,
   };
 }
@@ -85,6 +87,30 @@ describe("installArtifactTool", () => {
     );
     const { summary } = await installArtifactTool({ kind: "skill", slug: "pdf" }, { installer });
     expect(summary).toMatch(/Warning: ingestApiKey was empty; telemetry disabled/);
+  });
+
+  it("reports every related skill in the summary and progress steps", async () => {
+    const installer = vi.fn(async (opts: Parameters<typeof installArtifact>[0]) => {
+      opts.onProgress?.({
+        stage: "related",
+        slug: "security",
+        path: "/home/me/.claude/skills/security",
+      });
+      return makeResult({
+        name: "Quality",
+        relatedSkills: [
+          { slug: "security", installPath: "/home/me/.claude/skills/security" },
+          { slug: "performance", installPath: "/home/me/.claude/skills/performance" },
+        ],
+      });
+    });
+
+    const { summary } = await installArtifactTool(
+      { kind: "skill", slug: "quality" },
+      { installer },
+    );
+    expect(summary).toMatch(/Installed related skill security from the same repo/);
+    expect(summary).toMatch(/Also installed 2 related skill\(s\).*security, performance/);
   });
 
   it("propagates library errors verbatim", async () => {
