@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.actor != 'dependabot[bot]'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Full history so every commit is scanned, not just the HEAD tree.
           fetch-depth: 0
