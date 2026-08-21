@@ -32,6 +32,8 @@ function describeProgressEvent(event: InstallProgressEvent): string | null {
       const sub = event.subPath ? ` (sub-path ${event.subPath})` : "";
       return `Fetched tarball${sha}${sub}`;
     }
+    case "related":
+      return `Installed related skill ${event.slug} from the same repo`;
     case "wire":
       return `Wiring ${event.kind}/${event.slug} into detected AI clients`;
     case "record":
@@ -64,6 +66,13 @@ function summarize(
     if (wrote.length === 0 && manual.length === 0) {
       lines.push("No AI clients detected on this machine.");
     }
+  }
+
+  if ((result.relatedSkills ?? []).length > 0) {
+    const relatedList = result.relatedSkills.map((r) => r.slug).join(", ");
+    lines.push(
+      `Also installed ${result.relatedSkills.length} related skill(s) from the same repo: ${relatedList}.`,
+    );
   }
 
   if (result.warning) {

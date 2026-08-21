@@ -63,6 +63,11 @@ function makeProgressRenderer() {
           );
           break;
         }
+        case "related":
+          console.log(
+            `  ${c.green(glyph.check)} ${"related".padEnd(w)} ${event.slug}  ${c.dim("skill from the same repo")}`,
+          );
+          break;
         case "wire":
           console.log(
             `  ${c.green(glyph.check)} ${"wire".padEnd(w)} ${c.dim("telemetry sidecar")}  ${c.dim(fmtMs(t.delta()))}`,
@@ -146,6 +151,10 @@ export async function install(arg: string, opts: InstallOptions = {}): Promise<n
       console.log(`  ${c.yellow(glyph.warn)} ${c.yellow(result.warning)}`);
     }
 
+    if ((result.relatedSkills ?? []).length > 0) {
+      renderRelatedSkills(result.relatedSkills);
+    }
+
     if (kind === "mcp") renderMcpWiring(result);
     else if (kind === "skill") {
       renderSkillMirrors(result.skillMirrors ?? []);
@@ -155,6 +164,9 @@ export async function install(arg: string, opts: InstallOptions = {}): Promise<n
 
     console.log();
     console.log(`  ${c.dim("To remove:")} mh uninstall ${kind}s/${slug}`);
+    if ((result.relatedSkills ?? []).length > 0) {
+      console.log(`  ${c.dim("Related skills remove individually — see")} mh list`);
+    }
     return 0;
   } catch (err) {
     const msg = (err as Error).message;
@@ -253,6 +265,18 @@ function renderSkillMirrors(mirrors: SkillMirror[]): void {
   for (const m of errored) {
     console.log(
       `    ${c.red(glyph.cross)} ${m.clientLabel.padEnd(16)} ${c.dim((m.error ?? "error").slice(0, 80))}`,
+    );
+  }
+}
+
+function renderRelatedSkills(related: Array<{ slug: string; installPath: string }>): void {
+  console.log();
+  console.log(
+    `  ${c.bold("Related skills")} ${c.dim("(" + related.length + " from the same repo — the skill needs them)")}`,
+  );
+  for (const rel of related) {
+    console.log(
+      `    ${c.green(glyph.check)} ${rel.slug.padEnd(16)} ${c.dim(tildeify(rel.installPath))}`,
     );
   }
 }

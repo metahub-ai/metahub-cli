@@ -53,6 +53,22 @@ export async function uninstall(arg: string): Promise<number> {
     `  ${c.green(glyph.check)} ${c.dim("unwired   ")} hook (MCP client configs / sidecar)`,
   );
   console.log(`  ${c.green(glyph.check)} ${c.dim("ledger    ")} installs.json cleaned`);
+  // Skills can pull siblings in from the same repo (a marketplace.json
+  // groups them). Those install as their own ledger rows, so point at
+  // them instead of silently leaving orphans.
+  if (kind === "skill") {
+    const siblings = listInstalls().filter(
+      (i) => i.kind === "skill" && i.installedWith === slug && i.slug !== slug,
+    );
+    if (siblings.length > 0) {
+      console.log();
+      console.log(
+        `  ${c.yellow(glyph.warn)} ${siblings.length} related skill${siblings.length === 1 ? "" : "s"} came along with ${slug} and ${siblings.length === 1 ? "is" : "are"} still installed:`,
+      );
+      console.log(`    ${c.dim(siblings.map((s) => s.slug).join(" · "))}`);
+      console.log(`    ${c.dim("Remove individually with")} mh uninstall skills/<slug>`);
+    }
+  }
   console.log();
   console.log(`  ${c.dim("To reinstall:")} mh install ${kind}s/${slug}`);
   return 0;
