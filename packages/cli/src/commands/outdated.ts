@@ -31,10 +31,11 @@ export async function outdated(rest: string[] = []): Promise<number> {
   for (const i of installs) {
     try {
       const { artifact } = await getPublicArtifact(i.kind, i.slug);
-      if (artifact.publishedSha && i.publishedSha && artifact.publishedSha !== i.publishedSha) {
+      // Missing local SHA with a known remote SHA is still an update (not "up to date").
+      if (artifact.publishedSha && artifact.publishedSha !== i.publishedSha) {
         outdatedRows.push({
           ref: `${i.kind}s/${i.slug}`,
-          localSha: i.publishedSha.slice(0, 7),
+          localSha: i.publishedSha ? i.publishedSha.slice(0, 7) : "—",
           remoteSha: artifact.publishedSha.slice(0, 7),
           remoteVersion: artifact.version,
           publishedAt: artifact.publishedAt,

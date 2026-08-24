@@ -77,7 +77,7 @@ async function updateAll(): Promise<number> {
     let catalogMissing = false;
     try {
       const { artifact } = await getPublicArtifact(i.kind, i.slug);
-      if (artifact.publishedSha && i.publishedSha && artifact.publishedSha !== i.publishedSha) {
+      if (artifact.publishedSha && artifact.publishedSha !== i.publishedSha) {
         needsUpdate = true;
         remoteSha = artifact.publishedSha;
       }
