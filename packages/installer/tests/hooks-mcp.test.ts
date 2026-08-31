@@ -83,7 +83,7 @@ describe("wireHook (mcp) launch resolution + env forwarding", () => {
     mcpResults.push({
       client: "Claude Code",
       status: "wrote",
-      configPath: path.join(tmp, ".claude", "settings.json"),
+      configPath: path.join(tmp, ".claude.json"),
     });
     const { wireHook } = await import("../src/hooks");
     const res = wireHook({ kind: "mcp", slug: "srv-bin", ...baseInput });

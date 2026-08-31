@@ -45,7 +45,7 @@ pnpm bundle        # build the standalone tarball
 
 Node ≥ 20 (`.nvmrc`), pnpm ≥ 9. Tests are Vitest, per package under `packages/<name>/tests/`.
 
-Client state on an end-user machine lives in `~/.metahub/` — `config.json` (login token + telemetry prefs) and `installs.json` (per-install API keys). Installed artifacts land in client-specific dirs (`~/.claude/skills/<slug>/`, `~/.claude/settings.json` for MCP, `~/.metahub/agents/<slug>/`, …).
+Client state on an end-user machine lives in `~/.metahub/` — `config.json` (login token + telemetry prefs) and `installs.json` (per-install API keys). Installed artifacts land in client-specific dirs (`~/.claude/skills/<slug>/`, `~/.claude.json` for user-scoped Claude Code MCP servers, `~/.metahub/agents/<slug>/`, …).
 
 ## License
 

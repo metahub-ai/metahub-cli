@@ -56,7 +56,7 @@ describe("installPathFor", () => {
 });
 
 describe("claudeSettingsFile", () => {
-  it("points at ~/.claude/settings.json", () => {
-    expect(claudeSettingsFile()).toBe(path.join(HOME, ".claude", "settings.json"));
+  it("points at Claude Code's user-scoped ~/.claude.json", () => {
+    expect(claudeSettingsFile()).toBe(path.join(HOME, ".claude.json"));
   });
 });

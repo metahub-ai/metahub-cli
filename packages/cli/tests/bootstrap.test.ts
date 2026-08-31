@@ -75,18 +75,17 @@ describe("bootstrapStatus", () => {
 
 describe("bootstrapMetahubMcp (with one detected client)", () => {
   it("wires into Claude Code when ~/.claude exists, and is idempotent on re-run", () => {
-    // Plant ~/.claude/settings.json so Claude Code is "detected".
+    // Plant ~/.claude so Claude Code is "detected".
     const claudeDir = path.join(tmp, ".claude");
     fs.mkdirSync(claudeDir, { recursive: true });
-    fs.writeFileSync(path.join(claudeDir, "settings.json"), "{}");
 
     const first = bootstrapMetahubMcp();
     const wroteFirst = first.results.filter((r) => r.status === "wrote");
     expect(wroteFirst.length).toBeGreaterThan(0);
 
-    // Confirm settings.json now has a `metahub` entry under
+    // Confirm the user-scoped ~/.claude.json now has a `metahub` entry under
     // mcpServers pointing at the bundled bin.
-    const cfg = JSON.parse(fs.readFileSync(path.join(claudeDir, "settings.json"), "utf8")) as {
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmp, ".claude.json"), "utf8")) as {
       mcpServers?: Record<string, { command: string; args: string[] }>;
     };
     expect(cfg.mcpServers).toBeDefined();
@@ -103,10 +102,9 @@ describe("bootstrapMetahubMcp (with one detected client)", () => {
   it("unbootstrap removes the entry from a wired client", () => {
     const claudeDir = path.join(tmp, ".claude");
     fs.mkdirSync(claudeDir, { recursive: true });
-    fs.writeFileSync(path.join(claudeDir, "settings.json"), "{}");
     bootstrapMetahubMcp();
     unbootstrap();
-    const cfg = JSON.parse(fs.readFileSync(path.join(claudeDir, "settings.json"), "utf8")) as {
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmp, ".claude.json"), "utf8")) as {
       mcpServers?: Record<string, unknown>;
     };
     expect(cfg.mcpServers?.metahub).toBeUndefined();
@@ -115,7 +113,6 @@ describe("bootstrapMetahubMcp (with one detected client)", () => {
   it("force=true re-writes even when already wired", () => {
     const claudeDir = path.join(tmp, ".claude");
     fs.mkdirSync(claudeDir, { recursive: true });
-    fs.writeFileSync(path.join(claudeDir, "settings.json"), "{}");
     bootstrapMetahubMcp();
     const forced = bootstrapMetahubMcp({ force: true });
     const wrote = forced.results.filter((r) => r.status === "wrote");
@@ -125,9 +122,8 @@ describe("bootstrapMetahubMcp (with one detected client)", () => {
   it("wires METAHUB_REGISTRY_URL into the client config", () => {
     const claudeDir = path.join(tmp, ".claude");
     fs.mkdirSync(claudeDir, { recursive: true });
-    fs.writeFileSync(path.join(claudeDir, "settings.json"), "{}");
     bootstrapMetahubMcp();
-    const cfg = JSON.parse(fs.readFileSync(path.join(claudeDir, "settings.json"), "utf8")) as {
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmp, ".claude.json"), "utf8")) as {
       mcpServers?: Record<string, { env?: Record<string, string> }>;
     };
     const env = cfg.mcpServers?.metahub?.env;

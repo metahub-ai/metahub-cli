@@ -3,7 +3,7 @@
  *
  * The auth package owns the shared `~/.metahub/` root; this module only
  * adds the per-kind install path resolution and a couple of derived
- * paths (the installs ledger, the Claude Code settings file).
+ * paths (the installs ledger, the Claude Code user config file).
  */
 import path from "node:path";
 import os from "node:os";
@@ -40,7 +40,7 @@ export function installPathFor(kind: ArtifactKind, slug: string): string {
 }
 
 export function claudeSettingsFile(): string {
-  return path.join(getHome(), ".claude", "settings.json");
+  return path.join(getHome(), ".claude.json");
 }
 
 export { configRoot, configFile, writePrivateFile, isPrivateFile } from "@metahub/auth";

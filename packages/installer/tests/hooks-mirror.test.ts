@@ -221,7 +221,7 @@ describe("unwireHook ledger walk", () => {
       wirings: [
         {
           client: "claude-code",
-          path: path.join(tmp, ".claude", "settings.json"),
+          path: path.join(tmp, ".claude.json"),
           strategy: "mcp-json",
           key: "github",
           writtenMs: Date.now(),
