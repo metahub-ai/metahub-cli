@@ -25,6 +25,7 @@ describe("CLIENTS", () => {
         "Cline",
         "Goose",
         "Codex CLI",
+        "opencode",
       ]),
     );
   });
@@ -65,6 +66,14 @@ describe("CLIENTS", () => {
     expect(plugin).toEqual(["Claude Code"]);
 
     expect(clientsForKind("agent")).toEqual([]);
+  });
+
+  it("opencode supports skills and MCP (native SKILL.md + stdio MCP)", () => {
+    const oc = CLIENTS.find((c) => c.name === "opencode");
+    expect(oc).toBeDefined();
+    expect(oc!.url).toBe("https://opencode.ai");
+    // opencode reads SKILL.md verbatim and stdio MCP from opencode.json.
+    expect(oc!.supports).toEqual(["skill", "mcp"]);
   });
 
   it("Claude Code is the only client that supports all four kinds (sanity check)", () => {

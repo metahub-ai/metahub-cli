@@ -124,32 +124,48 @@ export function bootstrapStatus(bin: string): ClientBootstrapStatus[] {
       continue;
     }
     const cfgPath = adapter.configPath();
-    if (!cfgPath.endsWith(".json") || !fs.existsSync(cfgPath)) {
+    if (!/\.jsonc?$/.test(cfgPath) || !fs.existsSync(cfgPath)) {
       out.push({
         client: adapter.name,
         configPath: cfgPath,
-        state: cfgPath.endsWith(".json") ? "absent" : "manual",
+        state: cfgPath.endsWith(".json") || cfgPath.endsWith(".jsonc")
+          ? "absent"
+          : "manual",
       });
       continue;
     }
     try {
       const raw = fs.readFileSync(cfgPath, "utf8");
       const cfg = JSON.parse(raw) as Record<string, unknown>;
-      const key = (["mcpServers", "servers", "context_servers"] as const).find((k) => k in cfg);
-      const entry = key
-        ? ((cfg[key] as Record<string, unknown>)[SLUG] as
-            { command?: string; args?: string[] } | undefined)
-        : undefined;
+      // Claude-style clients use `mcpServers`; Continue uses `servers`;
+      // Codex uses `context_servers`; opencode uses `mcp`.
+      const key = (["mcpServers", "servers", "context_servers", "mcp"] as const).find(
+        (k) => k in cfg,
+      );
+      if (!key) {
+        out.push({ client: adapter.name, configPath: cfgPath, state: "absent" });
+        continue;
+      }
+      const entry = (cfg[key] as Record<string, unknown>)[SLUG] as
+        | { command?: string | string[]; args?: string[] }
+        | undefined;
       if (!entry) {
         out.push({ client: adapter.name, configPath: cfgPath, state: "absent" });
         continue;
       }
-      const argMatch = entry.args?.[0] === bin;
+      // opencode stores the launch as `command: [bin, ...]` under `mcp`;
+      // everyone else stores `args: [bin]` under mcpServers/servers/etc.
+      const argMatch =
+        key === "mcp"
+          ? Array.isArray(entry.command) && entry.command[entry.command.length - 1] === bin
+          : entry.args?.[0] === bin;
       out.push({
         client: adapter.name,
         configPath: cfgPath,
         state: argMatch ? "wired" : "wired-elsewhere",
-        existingArgs: entry.args,
+        existingArgs: key === "mcp" && Array.isArray(entry.command)
+          ? (entry.command as string[])
+          : entry.args,
       });
     } catch {
       out.push({ client: adapter.name, configPath: cfgPath, state: "absent" });

@@ -79,6 +79,15 @@ export const CLIENTS: ClientMeta[] = [
     url: "https://github.com/openai/codex",
     supports: ["mcp"],
   },
+  {
+    // opencode natively consumes SKILL.md skills (same verbatim format as
+    // Claude Code) and stdio MCP servers declared in `opencode.json`. Its
+    // plugin format is a JS/TS hook module — a different mechanism than the
+    // metahub `plugin` bundle kind — so plugins are intentionally omitted here.
+    name: "opencode",
+    url: "https://opencode.ai",
+    supports: ["skill", "mcp"],
+  },
 ];
 
 /** Clients that work with a given artifact kind. Used by the editor. */

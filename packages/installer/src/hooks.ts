@@ -153,6 +153,8 @@ function clientLabelFor(id: ClientId): string {
       return "Goose";
     case "codex-cli":
       return "Codex CLI";
+    case "opencode":
+      return "opencode";
   }
 }
 
@@ -226,9 +228,17 @@ function mirrorSkillToOtherClients(slug: string): {
     if (!target) continue;
 
     try {
-      const content = transformSkill(row.strategy as WiringStrategy, source);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, content, "utf8");
+      if (row.strategy === "opencode-skill-md") {
+        // opencode consumes the same verbatim SKILL.md folder shape as
+        // Claude Code (the canonical dir), so "mirroring" means copying
+        // the whole skill folder — including any supporting files — to
+        // the opencode skills dir, not writing a single transformed file.
+        fs.cpSync(canonicalDir, target, { recursive: true, force: true });
+      } else {
+        const content = transformSkill(row.strategy as WiringStrategy, source);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, content, "utf8");
+      }
       results.push({
         client: row.client,
         clientLabel: clientLabelFor(row.client),
@@ -367,6 +377,8 @@ function clientIdFromName(name: string): ClientId {
       return "goose";
     case "Codex CLI":
       return "codex-cli";
+    case "opencode":
+      return "opencode";
   }
   return name as ClientId;
 }
@@ -391,6 +403,13 @@ export function unwireHook(kind: ArtifactKind, slug: string): void {
       if (w.strategy === "anthropic-skill-md" || w.strategy === "claude-plugin") {
         // Folders — handled by the install dir removal in
         // uninstallArtifact(). Nothing else to do.
+        continue;
+      }
+      if (w.strategy === "opencode-skill-md") {
+        // The opencode mirror is a folder at ~/.config/opencode/skills/<slug>/
+        // — NOT the canonical install dir — so uninstallArtifact() won't
+        // remove it. Delete the mirrored folder explicitly.
+        fs.rmSync(w.path, { recursive: true, force: true });
         continue;
       }
       // Cursor / Continue / Zed: single file per skill.

@@ -18,6 +18,7 @@ const EXPECTED_NAMES = [
   "Goose",
   "Codex CLI",
   "VS Code",
+  "opencode",
 ];
 
 describe("CLIENT_ADAPTERS", () => {
