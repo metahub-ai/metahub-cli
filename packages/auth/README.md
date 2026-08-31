@@ -1,6 +1,6 @@
 # @metahub/auth
 
-Auth machinery shared between the MetaHub CLI ([`@metahub/cli`](../cli/README.md)) and the MetaHub MCP server ([`@metahub/mcp-server`](../mcp-server/README.md)). Owns:
+Auth machinery shared between the MetaHub CLI ([`@metahub-ai/mh`](../cli/README.md)) and the MetaHub MCP server ([`@metahub/mcp-server`](../mcp-server/README.md)). Owns:
 
 - Persisted-token storage at `~/.metahub/config.json` (read, write, clear)
 - The GitHub device-code flow against the portal (`startDeviceCodeFlow`, `pollDeviceCode`)
@@ -14,7 +14,7 @@ The package is silent: no `console.log`. Consumers wrap it with terminal UI, MCP
 npm install @metahub/auth
 ```
 
-You probably don't need to depend on it directly: it's an internal library consumed by `@metahub/cli` and `@metahub/mcp-server`. Both surfaces ship pre-wired to it.
+You probably don't need to depend on it directly: it's an internal library consumed by `@metahub-ai/mh` and `@metahub/mcp-server`. Both surfaces ship pre-wired to it.
 
 ## Public API
 
@@ -52,7 +52,7 @@ const status = await pollDeviceCode(start.deviceCode);
 
 ## Consumers
 
-- [`@metahub/cli`](../cli/README.md): `mh login` and the bearer-token reader on every authenticated command.
+- [`@metahub-ai/mh`](../cli/README.md): `mh login` and the bearer-token reader on every authenticated command.
 - [`@metahub/mcp-server`](../mcp-server/README.md): `metahub_signin_begin` / `metahub_signin_complete` split the device-code flow across two tool calls (MCP needs the verification URL surfaced to the AI before polling blocks). `metahub_signout`, `metahub_whoami` use `clearPersistedToken` / `readPersistedToken`. Lazy-auth tools call `resolveBearer` and prompt the user to sign in when it returns `null`.
 
 Both surfaces share the on-disk token, so a `mh login` session lights up the MCP server's authenticated tools (and vice versa) without re-signing in.

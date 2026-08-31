@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    name: "@metahub/cli",
+    name: "@metahub-ai/mh",
     include: ["tests/**/*.test.ts"],
     environment: "node",
     passWithNoTests: false,

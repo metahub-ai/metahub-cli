@@ -16,7 +16,7 @@ if [ ! -d "$MONOREPO/apps/registry" ]; then
   exit 1
 fi
 
-(cd "$HERE" && pnpm --filter "@metahub/cli..." build && pnpm --filter @metahub/cli bundle)
+(cd "$HERE" && pnpm --filter "@metahub-ai/mh..." build && pnpm --filter @metahub-ai/mh bundle)
 
 mkdir -p "$DST"
 rm -f "$DST"/*.tgz

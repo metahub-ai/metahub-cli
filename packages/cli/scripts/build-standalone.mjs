@@ -3,7 +3,7 @@
  * carries every workspace dep inline. The output is a single .tgz
  * the install.sh script can fetch from registry.metahub.ai/cli/
  * and install directly via `npm install -g <url>` — no dependency on
- * the npm registry having the @metahub/cli package published yet.
+ * the npm registry having the @metahub-ai/mh package published yet.
  *
  * What this produces:
  *
@@ -22,17 +22,17 @@
  * Both bin scripts are wired up via `bin` in package.json so a global
  * install (npm/pnpm/yarn/bun) places BOTH `mh` and `metahub-mcp` on
  * PATH, and findMetahubMcpBin() can resolve the MCP server via
- * `require.resolve('@metahub/cli/bin/metahub-mcp.js')`.
+ * `require.resolve('@metahub-ai/mh/bin/metahub-mcp.js')`.
  *
  * `npm install -g` understands this shape and creates the `mh` binary
  * on PATH the same way a normal global install does.
  *
  * Run:
- *   pnpm --filter @metahub/cli bundle
+ *   pnpm --filter @metahub-ai/mh bundle
  *
  * Or as part of the registry build (so the tarball is served from
  * apps/registry/public/cli/mh-latest.tgz):
- *   pnpm --filter @metahub/cli bundle && cp standalone/*.tgz \
+ *   pnpm --filter @metahub-ai/mh bundle && cp standalone/*.tgz \
  *     ../../apps/registry/public/cli/
  */
 import esbuild from "esbuild";
@@ -103,7 +103,7 @@ async function main() {
     { mode: 0o755 },
   );
   // MCP bin shim → bundled MCP. This is what findMetahubMcpBin()
-  // resolves via `require.resolve('@metahub/cli/bin/metahub-mcp.js')`.
+  // resolves via `require.resolve('@metahub-ai/mh/bin/metahub-mcp.js')`.
   await fs.writeFile(
     path.join(STAGE, "bin/metahub-mcp.js"),
     `#!/usr/bin/env node\nimport "../dist/mcp/server.js";\n`,
@@ -128,27 +128,22 @@ async function main() {
     keywords: pkg.keywords,
     type: pkg.type,
     bin: {
-      mh: "./bin/mh.js",
-      "metahub-mcp": "./bin/metahub-mcp.js",
+      mh: "bin/mh.js",
+      "metahub-mcp": "bin/metahub-mcp.js",
     },
     engines: pkg.engines,
     publishConfig: pkg.publishConfig,
     // `dependencies` intentionally omitted (everything bundled).
   };
-  await fs.writeFile(
-    path.join(STAGE, "package.json"),
-    JSON.stringify(stripped, null, 2) + "\n",
-  );
+  await fs.writeFile(path.join(STAGE, "package.json"), JSON.stringify(stripped, null, 2) + "\n");
 
   // README is optional. Copy if present so `npm view` etc. has docs.
   try {
-    await fs.copyFile(
-      path.join(PKG_DIR, "README.md"),
-      path.join(STAGE, "README.md"),
-    );
+    await fs.copyFile(path.join(PKG_DIR, "README.md"), path.join(STAGE, "README.md"));
   } catch {
     // No README — fine.
   }
+  await fs.copyFile(path.resolve(PKG_DIR, "..", "..", "LICENSE"), path.join(STAGE, "LICENSE"));
 
   // Install-source marker. `mh upgrade` reads this to decide whether
   // to re-run install.sh (tarball install) or hand off to npm/pnpm/bun
@@ -169,9 +164,7 @@ async function main() {
   // the scope is stripped, or @metahub-cli-x.y.z.tgz otherwise. Resolve
   // whatever it produced and also write a stable mh-latest.tgz alongside
   // so install.sh can ignore the version.
-  const tarballs = (await fs.readdir(OUT_ROOT)).filter((f) =>
-    f.endsWith(".tgz"),
-  );
+  const tarballs = (await fs.readdir(OUT_ROOT)).filter((f) => f.endsWith(".tgz"));
   const versioned = tarballs.find((f) => f.includes(pkg.version)) ?? tarballs[0];
   if (!versioned) {
     throw new Error("npm pack did not produce a .tgz");
@@ -179,10 +172,13 @@ async function main() {
   const latest = path.join(OUT_ROOT, "mh-latest.tgz");
   await fs.copyFile(path.join(OUT_ROOT, versioned), latest);
 
+  // The packed tarball keeps the marker because install.sh owns upgrades for
+  // that distribution. The directory itself is the npm publish target, so
+  // remove the marker there: npm-installed copies must upgrade through npm.
+  await fs.rm(path.join(STAGE, "dist", ".install-source"));
+
   const size = (await fs.stat(latest)).size;
-  console.log(
-    `[bundle] ok — ${versioned} (${(size / 1024).toFixed(1)} KiB) + mh-latest.tgz`,
-  );
+  console.log(`[bundle] ok — ${versioned} (${(size / 1024).toFixed(1)} KiB) + mh-latest.tgz`);
 }
 
 main().catch((err) => {

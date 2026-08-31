@@ -1,5 +1,5 @@
 {
-  "name": "@metahub/cli",
+  "name": "@metahub-ai/mh",
   "version": "0.1.0",
   "description": "MetaHub CLI — install, update, search, list, and uninstall AI artifacts.",
   "license": "MIT",
@@ -23,8 +23,8 @@
   ],
   "type": "module",
   "bin": {
-    "mh": "./bin/mh.js",
-    "metahub-mcp": "./bin/metahub-mcp.js"
+    "mh": "bin/mh.js",
+    "metahub-mcp": "bin/metahub-mcp.js"
   },
   "files": [
     "bin",
@@ -41,13 +41,14 @@
     "test:coverage": "vitest run --coverage",
     "prepublishOnly": "pnpm run build",
     "bundle": "node scripts/build-standalone.mjs",
-    "publish:standalone": "pnpm run bundle && npm publish standalone/package --access public"
+    "publish:standalone": "pnpm run bundle && cd standalone/package && npm publish --access public --provenance"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "@metahub/auth": "workspace:*",

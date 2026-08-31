@@ -1,6 +1,6 @@
 # @metahub/installer
 
-Install machinery shared between the MetaHub CLI ([`@metahub/cli`](../cli/README.md)) and the MetaHub MCP server ([`@metahub/mcp-server`](../mcp-server/README.md)). Owns:
+Install machinery shared between the MetaHub CLI ([`@metahub-ai/mh`](../cli/README.md)) and the MetaHub MCP server ([`@metahub/mcp-server`](../mcp-server/README.md)). Owns:
 
 - Download + extract artifact tarballs (`fetchAndExtractTarball`, `extractLocalTarball`)
 - Multi-client MCP wiring (`CLIENT_ADAPTERS`, `wireMcpAcrossClients`, `unwireMcpAcrossClients`)
@@ -17,7 +17,7 @@ The package is silent: no `console.log`. Pass an `onProgress` callback to `insta
 npm install @metahub/installer
 ```
 
-You probably don't need to depend on it directly: it's an internal library consumed by `@metahub/cli` and `@metahub/mcp-server`. Both surfaces ship pre-wired to it.
+You probably don't need to depend on it directly: it's an internal library consumed by `@metahub-ai/mh` and `@metahub/mcp-server`. Both surfaces ship pre-wired to it.
 
 ## Public API
 
@@ -69,7 +69,7 @@ import {
 
 ## Consumers
 
-- [`@metahub/cli`](../cli/README.md): `mh install / uninstall / list / update / show / outdated / search / doctor` all delegate here.
+- [`@metahub-ai/mh`](../cli/README.md): `mh install / uninstall / list / update / show / outdated / search / doctor` all delegate here.
 - [`@metahub/mcp-server`](../mcp-server/README.md): `metahub_install`, `metahub_uninstall`, `metahub_list_installed` call straight into `installArtifact`, `uninstallArtifact`, `listInstalled`. Both surfaces share the same install ledger and the same MCP wiring, so installs are interchangeable.
 
 ## Boundaries
