@@ -30,6 +30,30 @@ jobs:
       - name: Standalone bundle
         run: pnpm bundle
 
+      - name: Validate npm package contents
+        working-directory: packages/cli/standalone/package
+        run: npm publish --dry-run --access public
+
+      - name: Smoke-test shell-installer package
+        run: |
+          set -euo pipefail
+          test ! -e packages/cli/standalone/package/dist/.install-source
+          tar -tzf packages/cli/standalone/mh-latest.tgz | grep -Fx 'package/dist/.install-source' >/dev/null
+          MH_CURL_PREFIX="$RUNNER_TEMP/mh-curl-smoke"
+          npm install --global --prefix "$MH_CURL_PREFIX" packages/cli/standalone/mh-latest.tgz
+          "$MH_CURL_PREFIX/bin/mh" --version
+          "$MH_CURL_PREFIX/bin/metahub-mcp" --version
+
+      - name: Smoke-test npm package
+        working-directory: packages/cli/standalone/package
+        run: |
+          set -euo pipefail
+          NPM_TARBALL=$(npm pack --pack-destination "$RUNNER_TEMP")
+          MH_NPM_PREFIX="$RUNNER_TEMP/mh-npm-smoke"
+          npm install --global --prefix "$MH_NPM_PREFIX" "$RUNNER_TEMP/$NPM_TARBALL"
+          "$MH_NPM_PREFIX/bin/mh" --version
+          "$MH_NPM_PREFIX/bin/metahub-mcp" --version
+
       - name: Upload tarball
         uses: actions/upload-artifact@v4
         with:

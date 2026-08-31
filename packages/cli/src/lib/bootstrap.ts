@@ -1,10 +1,10 @@
 /**
  * MetaHub MCP auto-install (Phase C).
  *
- * When `@metahub/cli` is installed (globally via `npm install -g`,
+ * When `@metahub-ai/mh` is installed (globally via `npm install -g`,
  * or via the shell installer at registry.metahub.ai/install.sh),
- * npm pulls `@metahub/mcp-server` along with it. The bundled MCP
- * server speaks the Model Context Protocol over stdio and exposes
+ * the standalone package includes the MetaHub MCP server. It speaks
+ * the Model Context Protocol over stdio and exposes
  * `metahub_search`, `metahub_install`, `metahub_show`, etc. — so the
  * AI client itself can browse and install MetaHub artifacts via
  * natural language.
@@ -44,9 +44,9 @@ const SLUG = "metahub";
  * Resolve the bundled MCP server's bin script at runtime.
  *
  * Tries (in order):
- *   1. `require.resolve('@metahub/cli/bin/metahub-mcp.js')` — the
+ *   1. `require.resolve('@metahub-ai/mh/bin/metahub-mcp.js')` — the
  *      STANDALONE-bundle layout where the MCP entry ships INSIDE
- *      the @metahub/cli package itself. This is what the install.sh
+ *      the @metahub-ai/mh package itself. This is what the install.sh
  *      tarball and the npm-published package both produce.
  *   2. `require.resolve('@metahub/mcp-server/bin/metahub-mcp.js')` —
  *      the legacy split-package layout where @metahub/mcp-server is
@@ -62,9 +62,9 @@ const SLUG = "metahub";
  */
 export function findMetahubMcpBin(): string {
   const r = createRequire(import.meta.url);
-  // Path 1: bundled-into-@metahub/cli (the standalone shape).
+  // Path 1: bundled-into-@metahub-ai/mh (the standalone shape).
   try {
-    const p = r.resolve("@metahub/cli/bin/metahub-mcp.js");
+    const p = r.resolve("@metahub-ai/mh/bin/metahub-mcp.js");
     if (fs.existsSync(p)) return p;
   } catch {
     /* fall through */

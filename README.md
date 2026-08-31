@@ -4,9 +4,22 @@ The MetaHub client toolchain: everything that runs on an **end-user machine** to
 
 ## Install
 
+Install from npm:
+
+```bash
+npm install -g @metahub-ai/mh
+mh bootstrap
+```
+
+Or use the shell installer:
+
 ```bash
 curl -fsSL https://metahub.ai/install.sh | sh
 ```
+
+Both options install the same `mh` CLI and bundled `metahub-mcp` server. The
+shell installer runs the editor bootstrap automatically; npm users run
+`mh bootstrap` once after installation.
 
 This installs two binaries on your PATH:
 
@@ -19,7 +32,7 @@ This is a small pnpm workspace. The four published packages mirror what used to 
 
 | Package                  | What it is                                                                                                |
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `packages/cli`           | `@metahub/cli` — the `mh` binary; thin terminal wrapper over the libraries below                          |
+| `packages/cli`           | `@metahub-ai/mh` — the public npm package containing `mh` and `metahub-mcp`                               |
 | `packages/mcp-server`    | `@metahub/mcp-server` — MCP server exposing the catalog (search, install, sign-in, reviews)               |
 | `packages/installer`     | `@metahub/installer` — install ledger (`~/.metahub/installs.json`), multi-client wiring, tarball download |
 | `packages/auth`          | `@metahub/auth` — persisted token (`~/.metahub/config.json`) + GitHub device-code flow                    |
@@ -33,7 +46,7 @@ The CLI and MCP server share the installer and auth libraries — the MCP server
 Two deliberate coupling points with [metahub-monorepo](https://github.com/metahub-ai/metahub-monorepo):
 
 1. **`packages/shared` is a synced copy, not the source of truth.** The monorepo's `packages/shared` (used by the portal, registry, and publisher SDKs) is canonical. When the wire format changes there, run `pnpm sync:shared` (expects a sibling `../metahub-monorepo` checkout) to pull the new `src/`. Once `@metahub/shared` is published to npm, the vendored copy should be replaced by a regular dependency.
-2. **The registry serves the CLI tarball.** `pnpm bundle` produces a self-contained tarball (`packages/cli/standalone/mh-latest.tgz`) with every workspace dep baked in. `pnpm tarball:monorepo` copies it into the monorepo's `apps/registry/public/cli/`, where it is committed and served at `registry.metahub.ai/cli/mh-latest.tgz` for `install.sh`.
+2. **npm and the shell installer ship the same standalone build.** `pnpm bundle` produces both the npm publish directory (`packages/cli/standalone/package`) and a self-contained tarball (`packages/cli/standalone/mh-latest.tgz`) with every workspace dependency baked in. `pnpm tarball:monorepo` copies the tarball into the monorepo's `apps/registry/public/cli/`, where it is committed and served at `registry.metahub.ai/cli/mh-latest.tgz` for `install.sh`.
 
 ## Development
 
@@ -41,6 +54,7 @@ Two deliberate coupling points with [metahub-monorepo](https://github.com/metahu
 pnpm install
 pnpm verify        # build + typecheck + lint + test, in dependency order
 pnpm bundle        # build the standalone tarball
+pnpm publish:check # dry-run the exact package that will be sent to npm
 ```
 
 Node ≥ 20 (`.nvmrc`), pnpm ≥ 9. Tests are Vitest, per package under `packages/<name>/tests/`.

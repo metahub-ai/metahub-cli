@@ -9,7 +9,7 @@
  *     it during `pnpm bundle`.
  *
  *   - npm / pnpm / bun global install — we DON'T touch their global
- *     store. Instead we print the appropriate `<pm> add -g @metahub/cli`
+ *     store. Instead we print the appropriate `<pm> add -g @metahub-ai/mh`
  *     command and exit. The user runs it from a shell with the right
  *     credentials.
  *
@@ -92,10 +92,10 @@ export async function upgrade(): Promise<number> {
   console.log(`  ${c.dim("To upgrade, run one of:")}`);
   console.log();
   console.log(`    ${c.cyan("curl -fsSL " + INSTALL_SH + " | sh")}`);
-  console.log(`    ${c.dim("# or, once published on npm:")}`);
-  console.log(`    ${c.cyan("npm install -g @metahub/cli")}`);
-  console.log(`    ${c.cyan("pnpm add -g @metahub/cli")}`);
-  console.log(`    ${c.cyan("bun add -g @metahub/cli")}`);
+  console.log(`    ${c.dim("# or with npm:")}`);
+  console.log(`    ${c.cyan("npm install -g @metahub-ai/mh")}`);
+  console.log(`    ${c.cyan("pnpm add -g @metahub-ai/mh")}`);
+  console.log(`    ${c.cyan("bun add -g @metahub-ai/mh")}`);
   return 0;
 }
 
@@ -129,8 +129,8 @@ function suggestPackageManagers(): number {
   console.log(`  ${c.dim(glyph.step)} install source: ${c.bold("package manager")}`);
   console.log(`  ${c.dim("Run the global-update for the package manager you used:")}`);
   console.log();
-  console.log(`    ${c.cyan("npm install -g @metahub/cli")}`);
-  console.log(`    ${c.cyan("pnpm add -g @metahub/cli")}`);
-  console.log(`    ${c.cyan("bun add -g @metahub/cli")}`);
+  console.log(`    ${c.cyan("npm install -g @metahub-ai/mh")}`);
+  console.log(`    ${c.cyan("pnpm add -g @metahub-ai/mh")}`);
+  console.log(`    ${c.cyan("bun add -g @metahub-ai/mh")}`);
   return 0;
 }

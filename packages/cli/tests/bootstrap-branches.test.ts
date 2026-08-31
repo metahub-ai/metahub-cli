@@ -55,7 +55,7 @@ afterEach(() => {
 
 describe("findMetahubMcpBin — resolver fallback paths", () => {
   beforeEach(() => {
-    // The real resolver would find Path 1 (@metahub/cli/bin) in a
+    // The real resolver would find Path 1 (@metahub-ai/mh/bin) in a
     // built workspace; force every require.resolve to throw so the
     // function falls through to the sibling-folder traversal.
     vi.doMock("node:module", async (importOriginal) => {

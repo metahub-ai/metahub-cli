@@ -21,12 +21,19 @@ async function pipeTarball(body: Readable, dest: string, stripComponents: number
   const tar = spawn("tar", ["-xz", "-C", dest, `--strip-components=${stripComponents}`], {
     stdio: ["pipe", "inherit", "inherit"],
   });
-  await pipeline(body, tar.stdin!);
-  await new Promise<void>((resolve, reject) => {
-    tar.on("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`tar exited with ${code}`)),
-    );
+
+  // Register process completion immediately. On fast systems tar can exit
+  // before pipeline() finishes; attaching the listener afterward misses the
+  // event and leaves extraction waiting forever.
+  const completion = new Promise<{ code: number | null; error?: Error }>((resolve) => {
+    tar.once("error", (error) => resolve({ code: null, error }));
+    tar.once("close", (code) => resolve({ code }));
   });
+
+  await pipeline(body, tar.stdin!);
+  const result = await completion;
+  if (result.error) throw result.error;
+  if (result.code !== 0) throw new Error(`tar exited with ${result.code}`);
 }
 
 export interface ExtractOptions {

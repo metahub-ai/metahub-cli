@@ -1,4 +1,4 @@
-# @metahub/cli
+# @metahub-ai/mh
 
 The `mh` binary, the terminal interface for MetaHub. Search, install, update, uninstall, list, and sign in to MetaHub artifacts from a shell.
 
@@ -20,8 +20,20 @@ The CLI and the MCP server are complementary.
 
 ## Install
 
+### npm
+
 ```bash
-# Recommended — shell installer (npm package is coming soon)
+npm install -g @metahub-ai/mh
+mh bootstrap
+mh --version
+```
+
+`mh bootstrap` connects the bundled MetaHub MCP server to supported AI clients
+after an npm installation.
+
+### Shell installer
+
+```bash
 curl -fsSL https://metahub.ai/install.sh | sh
 mh --version
 ```
@@ -29,9 +41,11 @@ mh --version
 The installer downloads a self-contained tarball from
 `registry.metahub.ai/cli/mh-latest.tgz` and installs it via your
 local package manager. Both `mh` and `metahub-mcp` land on PATH.
+It also runs the editor bootstrap automatically. Both installation paths ship
+the same standalone bundle.
 
-Once `@metahub/cli` is published on npm, you'll also be able to run
-`npm install -g @metahub/cli` / `pnpm add -g @metahub/cli` / `bun add -g @metahub/cli`. Both paths ship the same bundle.
+You can substitute `pnpm add -g @metahub-ai/mh` or
+`bun add -g @metahub-ai/mh` for the npm command.
 
 ## Use
 

@@ -1,0 +1,67 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    if: github.repository == 'metahub-ai/metahub-cli'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      # npm trusted publishing requires Node 22.14+ and npm 11.5.1+.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+
+      - name: Require release tag and package version to match
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          WANT="${TAG#v}"
+          HAVE=$(node -p "require('./packages/cli/package.json').version")
+          echo "release=$WANT package=$HAVE"
+          test "$TAG" != "$WANT"
+          test "$HAVE" = "$WANT"
+
+      - name: Build and smoke-test the publish artifact
+        run: |
+          set -euo pipefail
+          pnpm bundle
+          test ! -e packages/cli/standalone/package/dist/.install-source
+          tar -tzf packages/cli/standalone/mh-latest.tgz | grep -Fx 'package/dist/.install-source' >/dev/null
+          MH_CURL_PREFIX="$RUNNER_TEMP/mh-curl-smoke"
+          npm install --global --prefix "$MH_CURL_PREFIX" packages/cli/standalone/mh-latest.tgz
+          "$MH_CURL_PREFIX/bin/mh" --version
+          "$MH_CURL_PREFIX/bin/metahub-mcp" --version
+
+      - name: Smoke-test the npm package
+        working-directory: packages/cli/standalone/package
+        run: |
+          set -euo pipefail
+          NPM_TARBALL=$(npm pack --pack-destination "$RUNNER_TEMP")
+          MH_NPM_PREFIX="$RUNNER_TEMP/mh-npm-smoke"
+          npm install --global --prefix "$MH_NPM_PREFIX" "$RUNNER_TEMP/$NPM_TARBALL"
+          "$MH_NPM_PREFIX/bin/mh" --version
+          "$MH_NPM_PREFIX/bin/metahub-mcp" --version
+
+      - name: Publish @metahub-ai/mh
+        working-directory: packages/cli/standalone/package
+        run: npm publish --access public --provenance
+        env:
+          # Needed only to bootstrap the first release. After the package exists,
+          # configure npm trusted publishing for this workflow and remove the secret.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
