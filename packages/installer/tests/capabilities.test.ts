@@ -186,9 +186,9 @@ describe("every targetPath resolves to a string or null", () => {
 });
 
 describe("MCP targetPath details", () => {
-  it("Claude Code MCP points at ~/.claude/settings.json", () => {
+  it("Claude Code MCP points at user-scoped ~/.claude.json", () => {
     expect(capabilityFor("claude-code", "mcp")!.targetPath("pdf")).toBe(
-      path.join(os.homedir(), ".claude", "settings.json"),
+      path.join(os.homedir(), ".claude.json"),
     );
   });
 

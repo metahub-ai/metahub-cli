@@ -47,7 +47,7 @@ describe("installArtifactTool", () => {
       makeResult({
         name: "GitHub MCP",
         clientsWired: [
-          { client: "claude-code", status: "wrote", configPath: "/home/me/.claude/settings.json" },
+          { client: "claude-code", status: "wrote", configPath: "/home/me/.claude.json" },
           { client: "cursor", status: "wrote", configPath: "/home/me/.cursor/mcp.json" },
         ],
       }),

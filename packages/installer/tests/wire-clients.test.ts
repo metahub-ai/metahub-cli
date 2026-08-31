@@ -50,9 +50,7 @@ describe("wireMcpAcrossClients (no clients detected)", () => {
     expect(out).toHaveLength(1);
     expect(out[0]?.client).toBe("Claude Code");
     expect(out[0]?.status).toBe("wrote");
-    const settings = JSON.parse(
-      fs.readFileSync(path.join(tmp, ".claude", "settings.json"), "utf8"),
-    );
+    const settings = JSON.parse(fs.readFileSync(path.join(tmp, ".claude.json"), "utf8"));
     expect(settings.mcpServers).toHaveProperty("pdf");
   });
 });
@@ -121,9 +119,7 @@ describe("unwireMcpAcrossClients", () => {
     const { wireMcpAcrossClients, unwireMcpAcrossClients } = await import("../src/clients");
     wireMcpAcrossClients("pdf", launch, env);
     unwireMcpAcrossClients("pdf");
-    const settings = JSON.parse(
-      fs.readFileSync(path.join(tmp, ".claude", "settings.json"), "utf8"),
-    );
+    const settings = JSON.parse(fs.readFileSync(path.join(tmp, ".claude.json"), "utf8"));
     expect(settings.mcpServers).not.toHaveProperty("pdf");
   });
 
@@ -136,11 +132,37 @@ describe("unwireMcpAcrossClients", () => {
 describe("unwire branches", () => {
   it("unwire is a no-op when the JSON config has no `mcpServers` (or equivalent) key", async () => {
     fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
-    fs.writeFileSync(path.join(tmp, ".claude", "settings.json"), JSON.stringify({ theme: "dark" }));
+    fs.writeFileSync(path.join(tmp, ".claude.json"), JSON.stringify({ theme: "dark" }));
     const { unwireMcpAcrossClients } = await import("../src/clients");
     expect(() => unwireMcpAcrossClients("pdf")).not.toThrow();
-    const after = JSON.parse(fs.readFileSync(path.join(tmp, ".claude", "settings.json"), "utf8"));
+    const after = JSON.parse(fs.readFileSync(path.join(tmp, ".claude.json"), "utf8"));
     expect(after.theme).toBe("dark");
+  });
+
+  it("migrates the slug out of the legacy Claude settings file", async () => {
+    const claudeDir = path.join(tmp, ".claude");
+    fs.mkdirSync(claudeDir, { recursive: true });
+    const legacyFile = path.join(claudeDir, "settings.json");
+    fs.writeFileSync(
+      legacyFile,
+      JSON.stringify({
+        theme: "dark",
+        mcpServers: {
+          pdf: { command: "node", args: ["old.js"] },
+          keep: { command: "node", args: ["keep.js"] },
+        },
+      }),
+    );
+
+    const { wireMcpAcrossClients } = await import("../src/clients");
+    wireMcpAcrossClients("pdf", launch, env);
+
+    const current = JSON.parse(fs.readFileSync(path.join(tmp, ".claude.json"), "utf8"));
+    const legacy = JSON.parse(fs.readFileSync(legacyFile, "utf8"));
+    expect(current.mcpServers.pdf).toMatchObject(launch);
+    expect(legacy.mcpServers).not.toHaveProperty("pdf");
+    expect(legacy.mcpServers).toHaveProperty("keep");
+    expect(legacy.theme).toBe("dark");
   });
 });
 

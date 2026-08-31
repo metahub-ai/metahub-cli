@@ -207,7 +207,7 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     strategy: "mcp-json",
     reload: "mcp-rpc",
     reloadHint: "Run `/mcp` in Claude Code to reconnect.",
-    targetPath: () => path.join(HOME, ".claude", "settings.json"),
+    targetPath: () => path.join(HOME, ".claude.json"),
   },
   {
     client: "claude-desktop",

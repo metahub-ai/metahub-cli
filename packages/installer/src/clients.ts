@@ -179,6 +179,39 @@ function jsonAdapter(opts: {
 }
 
 /**
+ * Claude Code stores user-scoped MCP servers in ~/.claude.json. Older
+ * MetaHub releases incorrectly wrote them to ~/.claude/settings.json,
+ * which Claude Code reserves for settings such as permissions and hooks.
+ * Remove that stale entry after a successful write, and from both locations
+ * during uninstall, so upgrading repairs existing installations.
+ */
+function claudeCodeAdapter(): ClientAdapter {
+  const current = jsonAdapter({
+    name: "Claude Code",
+    detect: () => exists(path.join(home(), ".claude")),
+    configPath: () => path.join(home(), ".claude.json"),
+  });
+  const legacy = jsonAdapter({
+    name: "Claude Code",
+    detect: () => exists(path.join(home(), ".claude")),
+    configPath: () => path.join(home(), ".claude", "settings.json"),
+  });
+
+  return {
+    ...current,
+    wire(slug, launch, env) {
+      const result = current.wire(slug, launch, env);
+      if (result.status === "wrote") legacy.unwire(slug);
+      return result;
+    },
+    unwire(slug) {
+      current.unwire(slug);
+      legacy.unwire(slug);
+    },
+  };
+}
+
+/**
  * For clients we can't safely auto-edit (YAML, TOML, UI-only), return
  * a copy-paste snippet so the user can wire it manually. The CLI
  * surfaces this in its post-install summary.
@@ -211,12 +244,8 @@ function manualAdapter(opts: {
 // ─── adapter list — order matters: matches catalog order ────────────────────
 
 export const CLIENT_ADAPTERS: ClientAdapter[] = [
-  // 1. Claude Code — JSON at ~/.claude/settings.json
-  jsonAdapter({
-    name: "Claude Code",
-    detect: () => exists(path.join(home(), ".claude")),
-    configPath: () => path.join(home(), ".claude", "settings.json"),
-  }),
+  // 1. Claude Code — user-scoped MCP JSON at ~/.claude.json
+  claudeCodeAdapter(),
 
   // 2. Claude Desktop — JSON at platform-specific path
   jsonAdapter({
