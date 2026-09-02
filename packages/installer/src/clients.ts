@@ -33,6 +33,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { openCodeConfigPath } from "./capabilities.js";
 
 export interface LaunchSpec {
   command: string;
@@ -357,6 +358,49 @@ ${launch.args.map((a) => `      - ${a}`).join("\n")}
 command = "${launch.command}"
 args = [${launch.args.map((a) => `"${a}"`).join(", ")}]`,
   }),
+
+  // 12. opencode — JSON at ~/.config/opencode/opencode.json (or .jsonc).
+  //     Deletes from the shared opencode MCP schema: servers live under the
+  //     `mcp` key as `{ "type": "local", "command": [...], "environment": {...} }`.
+  {
+    name: "opencode",
+    detect: () => exists(path.join(userConfigDir(), "opencode")),
+    configPath: openCodeConfigPath,
+    wire(slug, launch, env) {
+      const file = openCodeConfigPath();
+      try {
+        const config = readJson<Record<string, unknown>>(file, {});
+        const existing = (config["mcp"] as Record<string, unknown>) ?? {};
+        existing[slug] = {
+          type: "local",
+          command: [launch.command, ...launch.args],
+          environment: env,
+          enabled: true,
+        };
+        config["mcp"] = existing;
+        writeJson(file, config);
+        return { client: "opencode", status: "wrote", configPath: file };
+      } catch (err) {
+        return {
+          client: "opencode",
+          status: "skipped",
+          configPath: file,
+          warning: (err as Error).message,
+        };
+      }
+    },
+    unwire(slug) {
+      const file = openCodeConfigPath();
+      if (!exists(file)) return;
+      const config = readJson<Record<string, unknown>>(file, {});
+      const existing = (config["mcp"] as Record<string, unknown>) ?? {};
+      if (slug in existing) {
+        delete existing[slug];
+        config["mcp"] = existing;
+        writeJson(file, config);
+      }
+    },
+  },
 ];
 
 function claudeDesktopDir(): string {

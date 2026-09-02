@@ -94,11 +94,18 @@ describe("skill rows", () => {
     expect(cap!.targetPath("pdf")).toContain(path.join("zed", "prompts", "pdf.md"));
   });
 
-  it("clientsForKind('skill') returns exactly the 4 clients above", () => {
+  it("opencode skill target is a verbatim folder under <xdg>/opencode/skills/", () => {
+    const cap = capabilityFor("opencode", "skill");
+    expect(cap).not.toBeNull();
+    expect(cap!.strategy).toBe("opencode-skill-md");
+    expect(cap!.targetPath("pdf")).toContain(path.join("opencode", "skills", "pdf"));
+  });
+
+  it("clientsForKind('skill') returns exactly the 5 skill-capable clients", () => {
     const ids = clientsForKind("skill")
       .map((r) => r.client)
       .sort();
-    expect(ids).toEqual(["claude-code", "continue", "cursor", "zed"]);
+    expect(ids).toEqual(["claude-code", "continue", "cursor", "opencode", "zed"]);
   });
 });
 
@@ -118,7 +125,7 @@ describe("MCP rows", () => {
     expect(capabilityFor("cursor", "mcp")?.reload).toBe("hot-mtime");
   });
 
-  it("All 11 known clients have an MCP row", () => {
+  it("All 12 known clients have an MCP row", () => {
     const mcpClients = clientsForKind("mcp")
       .map((r) => r.client)
       .sort();
@@ -131,6 +138,7 @@ describe("MCP rows", () => {
       "continue",
       "cursor",
       "goose",
+      "opencode",
       "vs-code",
       "windsurf",
       "zed",
@@ -214,6 +222,14 @@ describe("MCP targetPath details", () => {
     expect(capabilityFor("codex-cli", "mcp")!.targetPath("pdf")).toBe(
       path.join(os.homedir(), ".codex", "config.toml"),
     );
+  });
+
+  it("opencode MCP is hot-mtime and targets opencode.json under <xdg>/opencode/", () => {
+    const cap = capabilityFor("opencode", "mcp");
+    expect(cap).not.toBeNull();
+    expect(cap!.strategy).toBe("mcp-json");
+    expect(cap!.reload).toBe("hot-mtime");
+    expect(cap!.targetPath("pdf")).toContain(path.join("opencode", "opencode.json"));
   });
 
   it("VS Code MCP points at <cwd>/.vscode/mcp.json", () => {

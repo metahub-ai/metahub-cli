@@ -21,6 +21,7 @@
  * entry here and a transformer in `skill-transformers.ts`. No code
  * paths in install.ts / hooks.ts / uninstall.ts need to change.
  */
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ArtifactKind } from "@metahub/shared";
@@ -42,7 +43,8 @@ export type ClientId =
   | "continue"
   | "cline"
   | "goose"
-  | "codex-cli";
+  | "codex-cli"
+  | "opencode";
 
 /**
  * How a (client, kind) pair is consumed. Each value implies a
@@ -76,6 +78,7 @@ export type ClientId =
  */
 export type WiringStrategy =
   | "anthropic-skill-md"
+  | "opencode-skill-md"
   | "cursor-rule-mdc"
   | "continue-rule-md"
   | "zed-prompt-md"
@@ -141,11 +144,33 @@ function claudeDesktopDir(): string {
 }
 
 /**
+ * Where opencode keeps its global config: ~/.config/opencode/opencode.json
+ * (or .jsonc — the docs accept both; if a .jsonc already exists we target
+ * that so we don't split a user's config across two files).
+ *
+ * The same helper is the single source of truth the opencode MCP adapter
+ * in clients.ts uses, so the capability matrix and the adapter always agree.
+ */
+export function openCodeConfigPath(): string {
+  const dir = path.join(xdgConfigDir(), "opencode");
+  const jsonc = path.join(dir, "opencode.jsonc");
+  try {
+    const st = fs.statSync(jsonc);
+    if (st.isFile()) return jsonc;
+  } catch {
+    /* no existing .jsonc — fall through to .json */
+  }
+  return path.join(dir, "opencode.json");
+}
+
+/**
  * The matrix. One row per (client, kind) — we omit "none" rows to
  * keep the table easy to read. Anything not listed = none.
  *
  * Skills wiring:
  *   - claude-code   : folder under ~/.claude/skills/<slug>/
+ *   - opencode      : folder under ~/.config/opencode/skills/<slug>/ —
+ *                     opencode reads the same verbatim SKILL.md format.
  *   - cursor        : ~/.cursor/rules/<slug>.mdc  (Cursor 0.42+, global rules)
  *   - continue      : ~/.continue/rules/<slug>.md
  *   - zed           : ~/.config/zed/prompts/<slug>.md
@@ -188,6 +213,16 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     strategy: "zed-prompt-md",
     reload: "hot-mtime",
     targetPath: (slug) => path.join(xdgConfigDir(), "zed", "prompts", `${slug}.md`),
+  },
+  {
+    // opencode loads global skills from ~/.config/opencode/skills/<slug>/
+    // using the same verbatim SKILL.md format as Claude Code — the whole
+    // folder is copied (opencode-skill-md) so supporting files ride along.
+    client: "opencode",
+    kind: "skill",
+    strategy: "opencode-skill-md",
+    reload: "hot-mtime",
+    targetPath: (slug) => path.join(xdgConfigDir(), "opencode", "skills", slug),
   },
 
   // ─── plugins ───────────────────────────────────────────────────────
@@ -284,6 +319,17 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     reload: "restart-required",
     reloadHint: "Restart your Codex CLI shell so the new MCP server is loaded.",
     targetPath: () => path.join(HOME, ".codex", "config.toml"),
+  },
+  {
+    // opencode declares stdio MCP servers under the `mcp` key of
+    // ~/.config/opencode/opencode.json (or .jsonc). Auto-merged by a
+    // dedicated adapter in clients.ts; reloaded hot on config change.
+    client: "opencode",
+    kind: "mcp",
+    strategy: "mcp-json",
+    reload: "hot-mtime",
+    reloadHint: "Restart the opencode session so the new MCP server is loaded.",
+    targetPath: () => openCodeConfigPath(),
   },
 
   // ─── agents ────────────────────────────────────────────────────────

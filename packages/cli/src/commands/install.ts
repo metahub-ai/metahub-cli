@@ -220,7 +220,7 @@ function renderMcpWiring(result: InstallResultLike): void {
     console.log();
     console.log(`  ${c.yellow(glyph.warn)} No AI clients detected on this machine.`);
     console.log(`    ${c.dim("mh recognizes: Claude Code, Claude Desktop, Cursor, Antigravity,")}`);
-    console.log(`    ${c.dim("VS Code, Zed, Windsurf, Continue, Cline, Goose, Codex CLI.")}`);
+    console.log(`    ${c.dim("VS Code, Zed, Windsurf, Continue, Cline, Goose, Codex CLI, opencode.")}`);
   }
 }
 

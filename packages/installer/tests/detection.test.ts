@@ -196,7 +196,7 @@ describe("detectClient — cline OR-branches", () => {
   });
 });
 
-describe("detectClient — zed / goose use xdgConfigDir", () => {
+describe("detectClient — zed / goose / opencode use xdgConfigDir", () => {
   it("zed detected via <xdg>/zed on linux with XDG_CONFIG_HOME", async () => {
     const xdg = path.join(HOME, "xdg");
     fs.mkdirSync(path.join(xdg, "zed"), { recursive: true });
@@ -205,6 +205,23 @@ describe("detectClient — zed / goose use xdgConfigDir", () => {
       expect(detectClient("zed")).toBe(true);
     });
   });
+
+  it("opencode detected via <xdg>/opencode on linux", async () => {
+    fs.mkdirSync(path.join(HOME, "_xdg", "opencode"), { recursive: true });
+    const { detectClient } = await import("../src/detection");
+    withPlatform("linux", { XDG_CONFIG_HOME: path.join(HOME, "_xdg") }, () => {
+      expect(detectClient("opencode")).toBe(true);
+    });
+  });
+
+  it("opencode detected via ~/.config/opencode with no XDG override", async () => {
+    mkdir(".config", "opencode");
+    const { detectClient } = await import("../src/detection");
+    withPlatform("linux", { XDG_CONFIG_HOME: undefined }, () => {
+      expect(detectClient("opencode")).toBe(true);
+    });
+  });
+
 
   it("goose detected via ~/.config/goose on darwin", async () => {
     mkdir(".config", "goose");

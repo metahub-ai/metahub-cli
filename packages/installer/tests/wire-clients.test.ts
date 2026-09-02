@@ -233,6 +233,72 @@ describe("Claude Desktop platform path", () => {
   });
 });
 
+describe("opencode adapter", () => {
+  beforeEach(() => {
+    fs.mkdirSync(path.join(tmp, ".config", "opencode"), { recursive: true });
+    Object.defineProperty(process, "platform", { value: "linux" });
+  });
+
+  it("wires an MCP server into the opencode `mcp` schema in opencode.json", async () => {
+    const { wireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", { command: "node", args: ["./server.js"] }, env);
+    const oc = out.find((r) => r.client === "opencode");
+    expect(oc?.status).toBe("wrote");
+    const file = path.join(tmp, ".config", "opencode", "opencode.json");
+    expect(fs.existsSync(file)).toBe(true);
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(doc.mcp).toHaveProperty("pdf");
+    expect(doc.mcp.pdf).toMatchObject({
+      type: "local",
+      command: ["node", "./server.js"],
+      enabled: true,
+      environment: { METAHUB_INGEST_API_KEY: "mhi_key" },
+    });
+  });
+
+  it("preserves existing opencode.json keys when merging", async () => {
+    const file = path.join(tmp, ".config", "opencode", "opencode.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ model: "anthropic/claude-sonnet" }), "utf8");
+    const { wireMcpAcrossClients } = await import("../src/clients");
+    wireMcpAcrossClients("pdf", { command: "node", args: ["./server.js"] }, env);
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(doc.model).toBe("anthropic/claude-sonnet");
+    expect(doc.mcp.pdf).toBeDefined();
+  });
+
+  it("targets an existing opencode.jsonc config instead of creating a second file", async () => {
+    const jsonc = path.join(tmp, ".config", "opencode", "opencode.jsonc");
+    fs.writeFileSync(jsonc, JSON.stringify({ mode: "server" }), "utf8");
+    const { wireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", { command: "node", args: ["./server.js"] }, env);
+    const oc = out.find((r) => r.client === "opencode");
+    expect(oc?.configPath).toBe(jsonc);
+    const doc = JSON.parse(fs.readFileSync(jsonc, "utf8"));
+    expect(doc.mcp.pdf).toBeDefined();
+  });
+
+  it("unwire removes the server from the `mcp` key and leaves other keys", async () => {
+    const { wireMcpAcrossClients, unwireMcpAcrossClients } = await import("../src/clients");
+    wireMcpAcrossClients("pdf", { command: "node", args: ["./server.js"] }, env);
+    const file = path.join(tmp, ".config", "opencode", "opencode.json");
+    const before = JSON.parse(fs.readFileSync(file, "utf8"));
+    before.model = "keep-me";
+    fs.writeFileSync(file, JSON.stringify(before), "utf8");
+    unwireMcpAcrossClients("pdf");
+    const after = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(after.mcp).not.toHaveProperty("pdf");
+    expect(after.model).toBe("keep-me");
+  });
+
+  it("is not detected when ~/.config/opencode is absent", async () => {
+    fs.rmSync(path.join(tmp, ".config", "opencode"), { recursive: true, force: true });
+    const { wireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", { command: "node", args: ["./server.js"] }, env);
+    expect(out.some((r) => r.client === "opencode")).toBe(false);
+  });
+});
+
 describe("Windows-only documentsDir + userConfigDir branches", () => {
   it("documentsDir prefers OneDrive when set + exists", async () => {
     Object.defineProperty(process, "platform", { value: "win32" });

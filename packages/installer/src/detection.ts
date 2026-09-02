@@ -87,6 +87,8 @@ export function detectClient(id: ClientId): boolean {
       return exists(path.join(xdgConfigDir(), "goose"));
     case "codex-cli":
       return exists(path.join(HOME, ".codex"));
+    case "opencode":
+      return exists(path.join(xdgConfigDir(), "opencode"));
   }
 }
 
@@ -104,6 +106,7 @@ export function detectedClients(): ClientId[] {
     "cline",
     "goose",
     "codex-cli",
+    "opencode",
   ];
   return ids.filter(detectClient);
 }

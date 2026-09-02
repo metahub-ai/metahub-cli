@@ -33,6 +33,9 @@ beforeEach(() => {
   // platforms os.homedir() reads from process.env.HOME.
   originalHome = process.env.HOME;
   process.env.HOME = tmp;
+  // Isolate xdg-based clients (zed/goose/opencode) too — otherwise a
+  // stray XDG_CONFIG_HOME would funnel writes into the real config.
+  delete process.env.XDG_CONFIG_HOME;
 });
 
 afterEach(() => {
@@ -40,6 +43,7 @@ afterEach(() => {
   else process.env.HOME = originalHome;
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.METAHUB_E2E_HOME;
+  delete process.env.XDG_CONFIG_HOME;
 });
 
 describe("findMetahubMcpBin", () => {

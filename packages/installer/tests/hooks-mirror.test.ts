@@ -136,6 +136,28 @@ describe("wireHook skill mirror — detected vs not detected", () => {
     }
   });
 
+  it("mirrors the whole skill folder into ~/.config/opencode/skills/<slug>/", async () => {
+    writeCanonicalSkill("pdf");
+    // Add a supporting file so we can prove the whole folder rides along.
+    fs.writeFileSync(
+      path.join(tmp, ".claude", "skills", "pdf", "references.pdf.md"),
+      "# extra\n",
+      "utf8",
+    );
+    detected["opencode"] = true;
+    const { wireHook } = await import("../src/hooks");
+    const res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    const oc = res.skillMirrors.find((m) => m.client === "opencode");
+    expect(oc?.status).toBe("wrote");
+    expect(fs.existsSync(path.join(oc!.path, "SKILL.md"))).toBe(true);
+    // Supporting files are copied too (opencode reads a folder, not a single file).
+    expect(fs.existsSync(path.join(oc!.path, "references.pdf.md"))).toBe(true);
+    const { findWiring } = await import("../src/wirings");
+    const set = findWiring("skill", "pdf");
+    const ocWiring = set?.wirings.find((w) => w.client === "opencode");
+    expect(ocWiring?.strategy).toBe("opencode-skill-md");
+  });
+
   it("reports an error when the transform write fails", async () => {
     writeCanonicalSkill("pdf");
     detected["cursor"] = true;
@@ -203,6 +225,20 @@ describe("unwireHook ledger walk", () => {
     // (the install-dir removal handles it).
     hooks.unwireHook("skill", "pdf");
     expect(fs.existsSync(cursorPath)).toBe(false);
+  });
+
+  it("removes the opencode skill mirror folder on unwire (distinct from canonical)", async () => {
+    writeCanonicalSkill("pdf");
+    detected["opencode"] = true;
+    const hooks = await import("../src/hooks");
+    const res = hooks.wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    const ocPath = res.skillMirrors.find((m) => m.client === "opencode")!.path;
+    expect(fs.existsSync(ocPath)).toBe(true);
+    // The canonical Claude Code dir remains — unwire only cleans the mirror.
+    expect(fs.existsSync(path.join(tmp, ".claude", "skills", "pdf"))).toBe(true);
+
+    hooks.unwireHook("skill", "pdf");
+    expect(fs.existsSync(ocPath)).toBe(false);
   });
 
   it("falls back to legacy mcp sweep when no ledger entry exists", async () => {

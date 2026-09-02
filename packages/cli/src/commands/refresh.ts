@@ -58,6 +58,8 @@ function clientLabelFor(id: ClientId): string {
       return "Goose";
     case "codex-cli":
       return "Codex CLI";
+    case "opencode":
+      return "opencode";
   }
 }
 
@@ -122,9 +124,16 @@ export async function refresh(): Promise<number> {
       const target = row.targetPath(inst.slug);
       if (!target) continue;
       try {
-        const content = transformSkill(row.strategy as WiringStrategy, source);
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, content, "utf8");
+        if (row.strategy === "opencode-skill-md") {
+          // opencode reads a whole skill folder (verbatim SKILL.md), so
+          // copy the canonical dir (with supporting files) rather than
+          // writing a single transformed file.
+          fs.cpSync(canonical, target, { recursive: true, force: true });
+        } else {
+          const content = transformSkill(row.strategy as WiringStrategy, source);
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          fs.writeFileSync(target, content, "utf8");
+        }
         newWirings.push({
           client: row.client,
           path: target,
