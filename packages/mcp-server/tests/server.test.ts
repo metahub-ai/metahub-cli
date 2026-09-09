@@ -100,6 +100,17 @@ const STDIO_TOOLS = [
 const HTTP_TOOLS = ["metahub_get", "metahub_install_command", "metahub_search"].sort();
 
 describe("buildServer (integration via InMemoryTransport)", () => {
+  it("advertises standing MetaHub guidance in the initialize handshake", async () => {
+    const { client } = await connect("stdio");
+    const instructions = client.getInstructions();
+    expect(instructions).toBeTruthy();
+    expect(instructions).toContain("metahub_search");
+    expect(instructions).toContain("metahub_install");
+    expect(instructions).toContain("metahub_list_installed");
+    // Short enough to sit in every session's system prompt.
+    expect(instructions!.length).toBeLessThan(1200);
+  });
+
   it("exposes the full local tool set in stdio mode", async () => {
     const { client } = await connect("stdio");
     const { tools } = await client.listTools();
