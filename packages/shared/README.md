@@ -1,10 +1,5 @@
 # @metahub/shared
 
-> **Vendored copy.** The canonical source of this package lives in
-> [metahub-monorepo](https://github.com/metahub-ai/metahub-monorepo)'s `packages/shared`
-> (the portal, registry, and publisher SDKs build against it there). Do not hand-edit
-> it in this repo — change it in the monorepo, then run `pnpm sync:shared` here.
-
 Wire-format types and API contracts shared across the portal, registry, CLI, and SDK family.
 
 ## What's in here

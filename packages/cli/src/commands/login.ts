@@ -92,7 +92,7 @@ function runBootstrapBanner(): void {
       }
       console.log();
       console.log(
-        `  ${c.dim("Try:")} ${c.cyan("ask your AI")} ${c.dim('"install skills/pdf"')} ${c.dim("— it'll do it.")}`,
+        `  ${c.dim("Try:")} ${c.cyan("ask your AI")} ${c.dim('"install skills/keynote-deck"')} ${c.dim("— it'll do it.")}`,
       );
     } else if (alreadyWired.length > 0) {
       console.log(

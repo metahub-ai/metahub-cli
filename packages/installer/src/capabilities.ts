@@ -2,27 +2,31 @@
  * Capability matrix — declarative source of truth for what each AI
  * client can consume and where its artifacts live on disk.
  *
- * Today, `hooks.ts` had hardcoded logic ("if kind === 'skill' put it
- * at ~/.claude/skills/..."). That's fine for one client but doesn't
- * scale: Cursor wants rules in `.cursor/rules/`, Continue wants them
- * in `~/.continue/rules/`, Zed exposes them as slash-command prompts,
- * etc.
- *
- * The matrix below is the single place where we declare:
+ * The matrix is the single place where we declare:
  *   - Which clients CAN consume each artifact kind (skill / mcp /
  *     plugin / agent).
  *   - Where on disk each client expects that kind to live.
- *   - Which format the content needs to be in (verbatim SKILL.md vs.
- *     transformed `.mdc` for Cursor vs. YAML rules for Continue).
+ *   - Which format the content needs to be in (verbatim SKILL.md
+ *     folder, a link to it, a transformed rule file, ...).
  *   - How the client picks up changes — hot-mtime (no restart),
  *     mcp-rpc (notification can be sent), or restart-required.
  *
  * Adding support for a new client + kind is a matter of adding an
- * entry here and a transformer in `skill-transformers.ts`. No code
- * paths in install.ts / hooks.ts / uninstall.ts need to change.
+ * entry here (and, for a new file format, a transformer in
+ * `skill-transformers.ts`). No code paths in install.ts / hooks.ts /
+ * uninstall.ts need to change.
  */
 import path from "node:path";
-import { claudeDesktopDir, getHome, userConfigDir } from "./paths.js";
+import {
+  agentsSkillsDir,
+  antigravityMcpConfigPath,
+  antigravitySkillsDir,
+  claudeDesktopDir,
+  geminiSettingsFile,
+  getHome,
+  openCodeConfigPath,
+  userConfigDir,
+} from "./paths.js";
 import type { ArtifactKind } from "@metahub/shared";
 
 /**
@@ -30,6 +34,11 @@ import type { ArtifactKind } from "@metahub/shared";
  * key in the wiring ledger and in artifact-config / `--only=<id>`
  * flags. The string values match the lowercased ClientAdapter.name
  * with spaces collapsed to dashes.
+ *
+ * `agents-dir` is not a client. It names the shared Agent Skills
+ * directory (`~/.agents/skills`) that Codex CLI, Gemini CLI, Cursor,
+ * opencode and Goose all read, so a skill linked there once is visible
+ * to every one of them.
  */
 export type ClientId =
   | "claude-code"
@@ -42,7 +51,10 @@ export type ClientId =
   | "continue"
   | "cline"
   | "goose"
-  | "codex-cli";
+  | "codex-cli"
+  | "gemini-cli"
+  | "opencode"
+  | "agents-dir";
 
 /**
  * How a (client, kind) pair is consumed. Each value implies a
@@ -50,11 +62,18 @@ export type ClientId =
  *
  *   anthropic-skill-md  : verbatim SKILL.md + frontmatter, dropped as
  *                         a folder per skill. Claude Code's native
- *                         format.
- *   cursor-rule-mdc     : Cursor 0.42+ rules format. A single .mdc
- *                         file per rule with YAML frontmatter:
- *                         `description`, optional `globs`. Body is
- *                         markdown.
+ *                         format and the canonical install.
+ *   skill-dir-link      : the canonical skill folder linked (symlink on
+ *                         macOS/Linux, copy on Windows) into another
+ *                         directory that a harness reads verbatim.
+ *   skill-native        : nothing to write — the client reads a
+ *                         directory we already populate (the canonical
+ *                         folder or the Agent Skills directory). Listed
+ *                         so install output can say so.
+ *   cursor-rule-mdc     : legacy. Cursor now loads SKILL.md folders
+ *                         natively, so no row uses this any more; the
+ *                         value survives so ledgers written by 0.1.0
+ *                         still unwire cleanly.
  *   continue-rule-md    : Continue's per-rule markdown file with
  *                         YAML frontmatter: `name`, `if`, etc.
  *   zed-prompt-md       : Zed's slash-command prompts directory.
@@ -64,18 +83,21 @@ export type ClientId =
  *                         ~/.claude/plugins/<slug>/. Verbatim.
  *   mcp-json            : MCP server entry written into a JSON config
  *                         under `mcpServers` / `servers` /
- *                         `context_servers` (varies per client). The
- *                         existing wireMcpAcrossClients() handles
+ *                         `context_servers` / `mcp` (varies per
+ *                         client). `wireMcpAcrossClients()` handles
  *                         this; the matrix just declares which
  *                         clients are eligible.
  *   mcp-manual          : MCP servers handled via a manual paste
- *                         snippet (YAML / TOML / UI).
+ *                         snippet (YAML / TOML / UI), or by shelling
+ *                         out to the client's own CLI when present.
  *   node-import         : Node module imported by the developer; no
  *                         file goes anywhere on the AI client side.
  *   none                : Client doesn't consume this kind at all.
  */
 export type WiringStrategy =
   | "anthropic-skill-md"
+  | "skill-dir-link"
+  | "skill-native"
   | "cursor-rule-mdc"
   | "continue-rule-md"
   | "zed-prompt-md"
@@ -111,7 +133,8 @@ export interface CapabilityRow {
   reloadHint?: string;
   /**
    * Where on disk this kind lives for this client. Returns the path
-   * that the install pipeline will write the artifact's content to.
+   * that the install pipeline will write the artifact's content to
+   * (or, for `skill-native`, the directory the client reads it from).
    * Returns null when the kind isn't supported (kept for consistency
    * with the matrix lookup signature; callers should also check
    * strategy !== "none" before using).
@@ -124,17 +147,22 @@ export interface CapabilityRow {
  * keep the table easy to read. Anything not listed = none.
  *
  * Skills wiring:
- *   - claude-code   : folder under ~/.claude/skills/<slug>/
- *   - cursor        : ~/.cursor/rules/<slug>.mdc  (Cursor 0.42+, global rules)
+ *   - claude-code   : canonical folder under ~/.claude/skills/<slug>/
+ *   - agents-dir    : link to it under ~/.agents/skills/<slug>/ — the
+ *                     Agent Skills standard location
+ *   - antigravity   : link under ~/.gemini/config/skills/<slug>/
+ *   - cursor, codex-cli, gemini-cli, opencode, goose
+ *                   : native readers of one of the two above; nothing
+ *                     to write
  *   - continue      : ~/.continue/rules/<slug>.md
  *   - zed           : ~/.config/zed/prompts/<slug>.md
- *   - everyone else : none (manual hint via the wiring report)
+ *   - everyone else : none
  *
  * Plugins wiring:
  *   - claude-code   : folder under ~/.claude/plugins/<slug>/
  *   - everyone else : none (no portable plugin bundle format exists)
  *
- * MCP wiring: matches the existing wireMcpAcrossClients() set.
+ * MCP wiring: matches the `wireMcpAcrossClients()` adapter set.
  *
  * Agents: node-import (no client wiring), regardless of client.
  */
@@ -148,11 +176,53 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     targetPath: (slug) => path.join(getHome(), ".claude", "skills", slug),
   },
   {
+    client: "agents-dir",
+    kind: "skill",
+    strategy: "skill-dir-link",
+    reload: "hot-mtime",
+    targetPath: (slug) => path.join(agentsSkillsDir(), slug),
+  },
+  {
+    client: "antigravity",
+    kind: "skill",
+    strategy: "skill-dir-link",
+    reload: "hot-mtime",
+    targetPath: (slug) => path.join(antigravitySkillsDir(), slug),
+  },
+  {
     client: "cursor",
     kind: "skill",
-    strategy: "cursor-rule-mdc",
+    strategy: "skill-native",
     reload: "hot-mtime",
-    targetPath: (slug) => path.join(getHome(), ".cursor", "rules", `${slug}.mdc`),
+    targetPath: (slug) => path.join(agentsSkillsDir(), slug),
+  },
+  {
+    client: "codex-cli",
+    kind: "skill",
+    strategy: "skill-native",
+    reload: "hot-mtime",
+    targetPath: (slug) => path.join(agentsSkillsDir(), slug),
+  },
+  {
+    client: "gemini-cli",
+    kind: "skill",
+    strategy: "skill-native",
+    reload: "hot-mtime",
+    targetPath: (slug) => path.join(agentsSkillsDir(), slug),
+  },
+  {
+    client: "opencode",
+    kind: "skill",
+    strategy: "skill-native",
+    reload: "hot-mtime",
+    targetPath: (slug) => path.join(agentsSkillsDir(), slug),
+  },
+  {
+    client: "goose",
+    kind: "skill",
+    strategy: "skill-native",
+    reload: "hot-mtime",
+    targetPath: (slug) => path.join(agentsSkillsDir(), slug),
   },
   {
     client: "continue",
@@ -206,10 +276,18 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
   {
     client: "antigravity",
     kind: "mcp",
-    strategy: "mcp-manual",
+    strategy: "mcp-json",
     reload: "restart-required",
-    reloadHint: "Open Antigravity → Settings → MCP servers and paste the snippet.",
-    targetPath: () => "Antigravity → Settings → MCP servers",
+    reloadHint: "Open Antigravity → Settings → MCP servers and refresh, or restart Antigravity.",
+    targetPath: () => antigravityMcpConfigPath(),
+  },
+  {
+    client: "gemini-cli",
+    kind: "mcp",
+    strategy: "mcp-json",
+    reload: "restart-required",
+    reloadHint: "Restart Gemini CLI (or run /mcp refresh) to load the new server.",
+    targetPath: () => geminiSettingsFile(),
   },
   {
     client: "vs-code",
@@ -232,6 +310,14 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     strategy: "mcp-json",
     reload: "hot-mtime",
     targetPath: () => path.join(getHome(), ".codeium", "windsurf", "mcp_config.json"),
+  },
+  {
+    client: "opencode",
+    kind: "mcp",
+    strategy: "mcp-json",
+    reload: "restart-required",
+    reloadHint: "Start a new opencode session so the new MCP server is loaded.",
+    targetPath: () => openCodeConfigPath(),
   },
   {
     client: "continue",
@@ -261,7 +347,7 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     kind: "mcp",
     strategy: "mcp-manual",
     reload: "restart-required",
-    reloadHint: "Restart your Codex CLI shell so the new MCP server is loaded.",
+    reloadHint: "Restart your Codex CLI session so the new MCP server is loaded.",
     targetPath: () => path.join(getHome(), ".codex", "config.toml"),
   },
 
@@ -292,4 +378,73 @@ export function capabilityFor(client: ClientId, kind: ArtifactKind): CapabilityR
  */
 export function clientsForKind(kind: ArtifactKind): CapabilityRow[] {
   return CAPABILITY_MATRIX.filter((r) => r.kind === kind && r.strategy !== "none");
+}
+
+/** Human label for a client id, shared by the CLI and the install summary. */
+export function clientLabel(id: ClientId): string {
+  switch (id) {
+    case "claude-code":
+      return "Claude Code";
+    case "claude-desktop":
+      return "Claude Desktop";
+    case "cursor":
+      return "Cursor";
+    case "antigravity":
+      return "Antigravity";
+    case "vs-code":
+      return "VS Code";
+    case "zed":
+      return "Zed";
+    case "windsurf":
+      return "Windsurf";
+    case "continue":
+      return "Continue";
+    case "cline":
+      return "Cline";
+    case "goose":
+      return "Goose";
+    case "codex-cli":
+      return "Codex CLI";
+    case "gemini-cli":
+      return "Gemini CLI";
+    case "opencode":
+      return "opencode";
+    case "agents-dir":
+      return "Agent Skills dir";
+  }
+}
+
+/** Map a ClientAdapter display name back to its id. Unknown names pass through. */
+export function clientIdFromLabel(name: string): ClientId {
+  switch (name) {
+    case "Claude Code":
+      return "claude-code";
+    case "Claude Desktop":
+      return "claude-desktop";
+    case "Cursor":
+      return "cursor";
+    case "Antigravity":
+      return "antigravity";
+    case "VS Code":
+      return "vs-code";
+    case "Zed":
+      return "zed";
+    case "Windsurf":
+      return "windsurf";
+    case "Continue":
+      return "continue";
+    case "Cline":
+      return "cline";
+    case "Goose":
+      return "goose";
+    case "Codex CLI":
+      return "codex-cli";
+    case "Gemini CLI":
+      return "gemini-cli";
+    case "opencode":
+      return "opencode";
+    case "Agent Skills dir":
+      return "agents-dir";
+  }
+  return name as ClientId;
 }

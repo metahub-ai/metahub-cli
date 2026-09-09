@@ -10,7 +10,13 @@
 import { describe, expect, it } from "vitest";
 import os from "node:os";
 import path from "node:path";
-import { CAPABILITY_MATRIX, capabilityFor, clientsForKind } from "../src/capabilities.js";
+import {
+  CAPABILITY_MATRIX,
+  capabilityFor,
+  clientIdFromLabel,
+  clientLabel,
+  clientsForKind,
+} from "../src/capabilities.js";
 
 /**
  * Temporarily pretend the process is running on a given platform.
@@ -74,11 +80,32 @@ describe("skill rows", () => {
     expect(cap!.reload).toBe("hot-mtime");
   });
 
-  it("Cursor skill target is .mdc under ~/.cursor/rules/", () => {
-    const cap = capabilityFor("cursor", "skill");
+  it("the Agent Skills dir gets a link to the canonical folder", () => {
+    const cap = capabilityFor("agents-dir", "skill");
     expect(cap).not.toBeNull();
-    expect(cap!.targetPath("pdf")).toBe(path.join(os.homedir(), ".cursor", "rules", "pdf.mdc"));
-    expect(cap!.strategy).toBe("cursor-rule-mdc");
+    expect(cap!.targetPath("pdf")).toBe(path.join(os.homedir(), ".agents", "skills", "pdf"));
+    expect(cap!.strategy).toBe("skill-dir-link");
+  });
+
+  it("Antigravity gets a link under ~/.gemini/config/skills/", () => {
+    const cap = capabilityFor("antigravity", "skill");
+    expect(cap!.targetPath("pdf")).toBe(
+      path.join(os.homedir(), ".gemini", "config", "skills", "pdf"),
+    );
+    expect(cap!.strategy).toBe("skill-dir-link");
+  });
+
+  it("Cursor, Codex, Gemini CLI, opencode and Goose read the Agent Skills dir natively", () => {
+    for (const id of ["cursor", "codex-cli", "gemini-cli", "opencode", "goose"] as const) {
+      const cap = capabilityFor(id, "skill");
+      expect(cap, id).not.toBeNull();
+      expect(cap!.strategy, id).toBe("skill-native");
+      expect(cap!.targetPath("pdf"), id).toBe(path.join(os.homedir(), ".agents", "skills", "pdf"));
+    }
+  });
+
+  it("no row uses the legacy Cursor .mdc strategy any more", () => {
+    expect(CAPABILITY_MATRIX.some((r) => r.strategy === "cursor-rule-mdc")).toBe(false);
   });
 
   it("Continue skill target is .md under ~/.continue/rules/", () => {
@@ -94,11 +121,22 @@ describe("skill rows", () => {
     expect(cap!.targetPath("pdf")).toContain(path.join("zed", "prompts", "pdf.md"));
   });
 
-  it("clientsForKind('skill') returns exactly the 4 clients above", () => {
+  it("clientsForKind('skill') returns every skill consumer", () => {
     const ids = clientsForKind("skill")
       .map((r) => r.client)
       .sort();
-    expect(ids).toEqual(["claude-code", "continue", "cursor", "zed"]);
+    expect(ids).toEqual([
+      "agents-dir",
+      "antigravity",
+      "claude-code",
+      "codex-cli",
+      "continue",
+      "cursor",
+      "gemini-cli",
+      "goose",
+      "opencode",
+      "zed",
+    ]);
   });
 });
 
@@ -118,7 +156,7 @@ describe("MCP rows", () => {
     expect(capabilityFor("cursor", "mcp")?.reload).toBe("hot-mtime");
   });
 
-  it("All 11 known clients have an MCP row", () => {
+  it("All 13 known clients have an MCP row", () => {
     const mcpClients = clientsForKind("mcp")
       .map((r) => r.client)
       .sort();
@@ -130,11 +168,31 @@ describe("MCP rows", () => {
       "codex-cli",
       "continue",
       "cursor",
+      "gemini-cli",
       "goose",
+      "opencode",
       "vs-code",
       "windsurf",
       "zed",
     ]);
+  });
+
+  it("Gemini CLI, Antigravity and opencode are JSON-wired", () => {
+    expect(capabilityFor("gemini-cli", "mcp")!.strategy).toBe("mcp-json");
+    expect(capabilityFor("gemini-cli", "mcp")!.targetPath("x")).toBe(
+      path.join(os.homedir(), ".gemini", "settings.json"),
+    );
+    expect(capabilityFor("antigravity", "mcp")!.strategy).toBe("mcp-json");
+    // The exact file depends on which Antigravity generation is on disk
+    // (current ~/.gemini/config vs legacy ~/.gemini/antigravity); both
+    // live under ~/.gemini and are named mcp_config.json.
+    const ag = capabilityFor("antigravity", "mcp")!.targetPath("x")!;
+    expect(ag.startsWith(path.join(os.homedir(), ".gemini"))).toBe(true);
+    expect(path.basename(ag)).toBe("mcp_config.json");
+    expect(capabilityFor("opencode", "mcp")!.strategy).toBe("mcp-json");
+    expect(capabilityFor("opencode", "mcp")!.targetPath("x")).toContain(
+      path.join("opencode", "opencode.json"),
+    );
   });
 });
 
@@ -156,7 +214,7 @@ describe("agent rows", () => {
 describe("capabilityFor", () => {
   it("returns null for unknown (client, kind) pairs", () => {
     expect(capabilityFor("claude-desktop", "skill")).toBeNull();
-    expect(capabilityFor("antigravity", "skill")).toBeNull();
+    expect(capabilityFor("windsurf", "skill")).toBeNull();
     expect(capabilityFor("cursor", "plugin")).toBeNull();
   });
 });
@@ -175,10 +233,7 @@ describe("every targetPath resolves to a string or null", () => {
     }
   });
 
-  it("manual-snippet MCP rows return a human hint, not a filesystem path", () => {
-    expect(capabilityFor("antigravity", "mcp")!.targetPath("pdf")).toBe(
-      "Antigravity → Settings → MCP servers",
-    );
+  it("UI-only MCP rows return a human hint, not a filesystem path", () => {
     expect(capabilityFor("cline", "mcp")!.targetPath("pdf")).toBe(
       "Cline panel → MCP Servers → Add",
     );
@@ -303,5 +358,35 @@ describe("claudeDesktopDir platform branches (via Claude Desktop MCP targetPath)
         path.join(os.homedir(), ".config", "Claude", "claude_desktop_config.json"),
       );
     });
+  });
+});
+
+describe("client labels", () => {
+  it("round-trips every id through its display name", () => {
+    const ids = [
+      "claude-code",
+      "claude-desktop",
+      "cursor",
+      "antigravity",
+      "vs-code",
+      "zed",
+      "windsurf",
+      "continue",
+      "cline",
+      "goose",
+      "codex-cli",
+      "gemini-cli",
+      "opencode",
+      "agents-dir",
+    ] as const;
+    for (const id of ids) {
+      expect(clientIdFromLabel(clientLabel(id))).toBe(id);
+    }
+    expect(clientLabel("gemini-cli")).toBe("Gemini CLI");
+    expect(clientLabel("agents-dir")).toBe("Agent Skills dir");
+  });
+
+  it("passes unknown adapter names through unchanged", () => {
+    expect(clientIdFromLabel("Totally Unknown Client")).toBe("Totally Unknown Client");
   });
 });

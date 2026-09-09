@@ -63,6 +63,11 @@ function makeProgressRenderer() {
           );
           break;
         }
+        case "build":
+          // Emitted before each step runs, so the user sees why an MCP
+          // install pauses for a while.
+          console.log(`  ${c.dim(glyph.step)} ${"build".padEnd(w)} ${c.dim(event.step + "…")}`);
+          break;
         case "wire":
           console.log(
             `  ${c.green(glyph.check)} ${"wire".padEnd(w)} ${c.dim("telemetry sidecar")}  ${c.dim(fmtMs(t.delta()))}`,
@@ -99,7 +104,7 @@ export async function install(arg: string, opts: InstallOptions = {}): Promise<n
     });
     if (kinds.length === 0) {
       console.error(
-        `${c.red(glyph.cross)} No artifact named ${c.bold(slug)} in the catalog. Use ${c.bold("<kind>/<slug>")} — e.g. \`skills/pdf\`, \`mcps/github\` — or try \`mh search ${slug}\`.`,
+        `${c.red(glyph.cross)} No artifact named ${c.bold(slug)} in the catalog. Use ${c.bold("<kind>/<slug>")} — e.g. \`skills/keynote-deck\`, \`mcps/github\` — or try \`mh search ${slug}\`.`,
       );
       return 2;
     }
@@ -146,8 +151,16 @@ export async function install(arg: string, opts: InstallOptions = {}): Promise<n
       console.log(`  ${c.yellow(glyph.warn)} ${c.yellow(result.warning)}`);
     }
 
-    if (kind === "mcp") renderMcpWiring(result);
-    else if (kind === "skill") {
+    if (kind === "mcp") {
+      if (result.buildSteps.length > 0) {
+        console.log(`    ${c.dim("Prepared  ")} ${c.dim(result.buildSteps.join(", "))}`);
+      }
+      if (result.buildNote) {
+        console.log();
+        console.log(`  ${c.yellow(glyph.warn)} ${c.dim(result.buildNote)}`);
+      }
+      renderMcpWiring(result, Boolean(result.warning));
+    } else if (kind === "skill") {
       renderSkillMirrors(result.skillMirrors ?? []);
       renderSkillNextSteps(kind, slug);
     } else if (kind === "plugin") renderSkillNextSteps(kind, slug);
@@ -183,7 +196,7 @@ interface InstallResultLike {
   }>;
 }
 
-function renderMcpWiring(result: InstallResultLike): void {
+function renderMcpWiring(result: InstallResultLike, warned = false): void {
   const wrote = (result.clientsWired ?? []).filter((cli) => cli.status === "wrote");
   const manual = (result.clientsWired ?? []).filter((cli) => cli.status === "manual");
   if (wrote.length > 0) {
@@ -216,11 +229,15 @@ function renderMcpWiring(result: InstallResultLike): void {
       }
     }
   }
-  if (wrote.length === 0 && manual.length === 0) {
+  if (wrote.length === 0 && manual.length === 0 && !warned) {
     console.log();
     console.log(`  ${c.yellow(glyph.warn)} No AI clients detected on this machine.`);
-    console.log(`    ${c.dim("mh recognizes: Claude Code, Claude Desktop, Cursor, Antigravity,")}`);
-    console.log(`    ${c.dim("VS Code, Zed, Windsurf, Continue, Cline, Goose, Codex CLI.")}`);
+    console.log(
+      `    ${c.dim("mh recognizes: Claude Code, Claude Desktop, Cursor, Antigravity, Gemini CLI,")}`,
+    );
+    console.log(
+      `    ${c.dim("VS Code, Zed, Windsurf, Continue, Cline, Goose, Codex CLI, opencode.")}`,
+    );
   }
 }
 
@@ -228,18 +245,20 @@ interface SkillMirror {
   client: string;
   clientLabel: string;
   path: string;
-  status: "wrote" | "skipped-not-detected" | "skipped-no-source" | "error";
+  status:
+    "wrote" | "native" | "skipped-not-detected" | "skipped-no-source" | "skipped-exists" | "error";
   error?: string;
 }
 
 function renderSkillMirrors(mirrors: SkillMirror[]): void {
   // Claude Code is the canonical install path — always wrote.
-  // mirrors[] only carries the *other* clients (Cursor / Continue /
-  // Zed). When nothing is detected we skip the section entirely so
-  // the user isn't bombarded with "n/a" lines.
+  // mirrors[] carries the *other* targets: the Agent Skills dir link,
+  // Antigravity's link, the Continue / Zed rule files, and the clients
+  // that read one of those directories natively.
   const wrote = mirrors.filter((m) => m.status === "wrote");
+  const native = mirrors.filter((m) => m.status === "native");
+  const blocked = mirrors.filter((m) => m.status === "skipped-exists");
   const errored = mirrors.filter((m) => m.status === "error");
-  // Always show Claude Code since that's the canonical install.
   console.log();
   console.log(`  ${c.bold("Wired into")}`);
   console.log(
@@ -248,6 +267,17 @@ function renderSkillMirrors(mirrors: SkillMirror[]): void {
   for (const m of wrote) {
     console.log(
       `    ${c.green(glyph.check)} ${m.clientLabel.padEnd(16)} ${c.dim(tildeify(m.path))}`,
+    );
+  }
+  if (native.length > 0) {
+    const names = native.map((m) => m.clientLabel).join(", ");
+    console.log(
+      `    ${c.green(glyph.check)} ${names}  ${c.dim("read " + tildeify(native[0]!.path))}`,
+    );
+  }
+  for (const m of blocked) {
+    console.log(
+      `    ${c.yellow(glyph.warn)} ${m.clientLabel.padEnd(16)} ${c.dim(tildeify(m.path) + " already exists and is not ours — left alone")}`,
     );
   }
   for (const m of errored) {
@@ -264,9 +294,11 @@ function renderSkillNextSteps(kind: "skill" | "plugin", slug: string): void {
     // Claude Code reads SKILL.md on next prompt — no restart needed
     // for the canonical install. Cursor / Continue / Zed mtime-watch
     // their rules dirs — also no restart needed.
-    console.log(`    ${c.dim(glyph.step)} Use the skill from any wired client — no restart needed`);
     console.log(
-      `    ${c.dim(glyph.step)} Run \`mh refresh\` after installing a new AI client to wire there too`,
+      `    ${c.dim(glyph.step)} Use the skill from any wired harness — no restart needed`,
+    );
+    console.log(
+      `    ${c.dim(glyph.step)} Run \`mh refresh\` after installing a new AI harness to wire there too`,
     );
     console.log(
       `    ${c.dim(glyph.step)} Publisher-driven spans? Add ${c.cyan("`mh trace skill/" + slug + "`")} to SKILL.md`,

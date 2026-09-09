@@ -51,6 +51,8 @@ afterEach(() => {
     ".continue",
     ".codex",
     ".config",
+    ".gemini",
+    ".agents",
     "Documents",
     "AppData",
   ]) {
@@ -118,6 +120,25 @@ describe("detectClient — present vs absent (home-relative clients)", () => {
     const { detectClient } = await import("../src/detection");
     mkdir(".antigravity");
     expect(detectClient("antigravity")).toBe(true);
+  });
+
+  it("detects antigravity via ~/.gemini/antigravity", async () => {
+    const { detectClient } = await import("../src/detection");
+    expect(detectClient("antigravity")).toBe(false);
+    mkdir(".gemini", "antigravity");
+    expect(detectClient("antigravity")).toBe(true);
+  });
+
+  it("detects gemini-cli via ~/.gemini", async () => {
+    const { detectClient } = await import("../src/detection");
+    expect(detectClient("gemini-cli")).toBe(false);
+    mkdir(".gemini");
+    expect(detectClient("gemini-cli")).toBe(true);
+  });
+
+  it("the Agent Skills dir is always a valid target", async () => {
+    const { detectClient } = await import("../src/detection");
+    expect(detectClient("agents-dir")).toBe(true);
   });
 
   it("detects windsurf via ~/.codeium/windsurf", async () => {
@@ -214,6 +235,17 @@ describe("detectClient — zed / goose use xdgConfigDir", () => {
     });
   });
 
+  it("opencode detected via ~/.config/opencode on darwin", async () => {
+    const { detectClient } = await import("../src/detection");
+    withPlatform("darwin", {}, () => {
+      expect(detectClient("opencode")).toBe(false);
+    });
+    mkdir(".config", "opencode");
+    withPlatform("darwin", {}, () => {
+      expect(detectClient("opencode")).toBe(true);
+    });
+  });
+
   it("goose detected via APPDATA/goose on win32", async () => {
     const appdata = path.join(HOME, "AppData", "Roaming");
     fs.mkdirSync(path.join(appdata, "goose"), { recursive: true });
@@ -271,6 +303,8 @@ describe("detectedClients", () => {
     expect(result).toContain("cursor");
     expect(result).not.toContain("antigravity");
     expect(result).not.toContain("codex-cli");
+    // The pseudo-client never appears in the detected list.
+    expect(result).not.toContain("agents-dir");
   });
 
   it("returns an empty array when no clients are present", async () => {

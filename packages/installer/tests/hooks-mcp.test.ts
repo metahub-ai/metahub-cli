@@ -140,6 +140,8 @@ describe("wireHook (mcp) launch resolution + env forwarding", () => {
       ["Cline", "cline"],
       ["Goose", "goose"],
       ["Codex CLI", "codex-cli"],
+      ["Gemini CLI", "gemini-cli"],
+      ["opencode", "opencode"],
       ["Totally Unknown Client", "Totally Unknown Client"], // default arm
     ];
     for (const [name] of names) {
@@ -210,5 +212,33 @@ describe("wireHook (mcp) launch resolution + env forwarding", () => {
     expect(res.warning).toMatch(/Couldn't infer how to launch/);
     expect(res.clients).toEqual([]);
     expect(res.skillMirrors).toEqual([]);
+  });
+});
+
+describe("wireHook (mcp) launch override", () => {
+  it("uses the caller-supplied launch instead of resolving the install dir", async () => {
+    writeMcpServer("srv-npx", { "package.json": JSON.stringify({ bin: "dist/index.js" }) }); // unbuilt
+    mcpResults.push({
+      client: "Claude Code",
+      status: "wrote",
+      configPath: path.join(tmp, "a.json"),
+    });
+    const { wireHook } = await import("../src/hooks");
+    const res = wireHook({
+      kind: "mcp",
+      slug: "srv-npx",
+      ...baseInput,
+      launch: { command: "npx", args: ["-y", "some-server@1.0.0"] },
+    });
+    expect(res.warning).toBeUndefined();
+    expect(lastWireArgs.launch).toEqual({ command: "npx", args: ["-y", "some-server@1.0.0"] });
+  });
+
+  it("refuses to wire an unbuilt tree when no override is given", async () => {
+    writeMcpServer("srv-unbuilt", { "package.json": JSON.stringify({ bin: "dist/index.js" }) });
+    const { wireHook } = await import("../src/hooks");
+    const res = wireHook({ kind: "mcp", slug: "srv-unbuilt", ...baseInput });
+    expect(res.warning).toMatch(/entry point dist\/index\.js is missing/);
+    expect(res.clients).toEqual([]);
   });
 });

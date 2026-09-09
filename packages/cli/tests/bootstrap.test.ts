@@ -19,8 +19,11 @@ import {
   bootstrapMetahubMcp,
   bootstrapStatus,
   findMetahubMcpBin,
+  isNpxCachePath,
+  launchSpecFor,
   unbootstrap,
 } from "../src/lib/bootstrap.js";
+import { INSTRUCTIONS_BEGIN } from "../src/lib/instructions.js";
 
 let tmp: string;
 let originalHome: string | undefined;
@@ -111,6 +114,73 @@ describe("bootstrapMetahubMcp (with one detected client)", () => {
     expect(cfg.mcpServers?.metahub).toBeUndefined();
   });
 
+  it("writes the MetaHub instruction block into every detected harness by default", () => {
+    fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
+    fs.mkdirSync(path.join(tmp, ".codex"), { recursive: true });
+    const res = bootstrapMetahubMcp();
+    const wrote = res.instructions.filter((r) => r.status === "wrote").map((r) => r.id);
+    expect(wrote).toEqual(expect.arrayContaining(["claude-code", "codex-cli"]));
+    expect(fs.readFileSync(path.join(tmp, ".claude", "CLAUDE.md"), "utf8")).toContain(
+      INSTRUCTIONS_BEGIN,
+    );
+    expect(fs.readFileSync(path.join(tmp, ".codex", "AGENTS.md"), "utf8")).toContain(
+      INSTRUCTIONS_BEGIN,
+    );
+    // Re-run: MCP wiring is a no-op and the blocks are reported current.
+    const again = bootstrapMetahubMcp();
+    expect(again.results.filter((r) => r.status === "wrote")).toHaveLength(0);
+    expect(again.instructions.find((r) => r.id === "claude-code")?.status).toBe("current");
+    // unbootstrap takes the blocks away too.
+    unbootstrap();
+    expect(fs.existsSync(path.join(tmp, ".claude", "CLAUDE.md"))).toBe(false);
+  });
+
+  it("leaves instruction files alone with instructions:false or METAHUB_NO_INSTRUCTIONS=1", () => {
+    fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
+    const res = bootstrapMetahubMcp({ instructions: false });
+    expect(res.instructions).toEqual([]);
+    expect(fs.existsSync(path.join(tmp, ".claude", "CLAUDE.md"))).toBe(false);
+    process.env.METAHUB_NO_INSTRUCTIONS = "1";
+    try {
+      expect(bootstrapMetahubMcp().instructions).toEqual([]);
+    } finally {
+      delete process.env.METAHUB_NO_INSTRUCTIONS;
+    }
+    expect(fs.existsSync(path.join(tmp, ".claude", "CLAUDE.md"))).toBe(false);
+  });
+
+  it("wires Gemini CLI, Antigravity and opencode when their roots exist", () => {
+    fs.mkdirSync(path.join(tmp, ".gemini", "antigravity"), { recursive: true });
+    fs.mkdirSync(path.join(tmp, ".config", "opencode"), { recursive: true });
+    const origPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "linux" });
+    try {
+      const res = bootstrapMetahubMcp({ instructions: false });
+      const wrote = res.results.filter((r) => r.status === "wrote").map((r) => r.client);
+      expect(wrote).toEqual(expect.arrayContaining(["Gemini CLI", "Antigravity", "opencode"]));
+      const gemini = JSON.parse(
+        fs.readFileSync(path.join(tmp, ".gemini", "settings.json"), "utf8"),
+      );
+      expect(gemini.mcpServers.metahub.args[0]).toContain("metahub-mcp.js");
+      const ag = JSON.parse(
+        fs.readFileSync(path.join(tmp, ".gemini", "config", "mcp_config.json"), "utf8"),
+      );
+      expect(ag.mcpServers.metahub.command).toBe("node");
+      const oc = JSON.parse(
+        fs.readFileSync(path.join(tmp, ".config", "opencode", "opencode.json"), "utf8"),
+      );
+      expect(oc.mcp.metahub.type).toBe("local");
+      expect(oc.mcp.metahub.command[0]).toBe("node");
+      // Status sees all three as wired now.
+      const rows = bootstrapStatus(findMetahubMcpBin());
+      for (const name of ["Gemini CLI", "Antigravity", "opencode"]) {
+        expect(rows.find((r) => r.client === name)?.state, name).toBe("wired");
+      }
+    } finally {
+      Object.defineProperty(process, "platform", { value: origPlatform });
+    }
+  });
+
   it("force=true re-writes even when already wired", () => {
     const claudeDir = path.join(tmp, ".claude");
     fs.mkdirSync(claudeDir, { recursive: true });
@@ -169,5 +239,64 @@ describe("upgrade install-source detection", () => {
     // should report 'unknown' so the user gets both upgrade options.
     const result = detectInstallSource();
     expect(["tarball", "package-manager", "unknown"]).toContain(result);
+  });
+});
+
+describe("launchSpecFor", () => {
+  it("uses the absolute bin for a normal install", () => {
+    expect(launchSpecFor("/usr/local/lib/node_modules/@metahub-ai/mh/bin/metahub-mcp.js")).toEqual({
+      command: "node",
+      args: ["/usr/local/lib/node_modules/@metahub-ai/mh/bin/metahub-mcp.js"],
+    });
+    expect(isNpxCachePath("/usr/local/lib/node_modules/@metahub-ai/mh/bin/metahub-mcp.js")).toBe(
+      false,
+    );
+  });
+
+  it("switches to the npx form when the bin lives in npm's npx cache", () => {
+    const bin = path.join(
+      os.homedir(),
+      ".npm",
+      "_npx",
+      "08cfa0a590185a80",
+      "node_modules",
+      "@metahub-ai",
+      "mh",
+      "bin",
+      "metahub-mcp.js",
+    );
+    expect(isNpxCachePath(bin)).toBe(true);
+    expect(launchSpecFor(bin)).toEqual({
+      command: "npx",
+      args: ["-y", "--package=@metahub-ai/mh", "metahub-mcp"],
+    });
+  });
+
+  it("bootstrapStatus recognises an npx-form entry as wired", () => {
+    fs.mkdirSync(path.join(tmp, ".cursor"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, ".cursor", "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          metahub: { command: "npx", args: ["-y", "--package=@metahub-ai/mh", "metahub-mcp"] },
+        },
+      }),
+    );
+    const npxBin = path.join(
+      tmp,
+      ".npm",
+      "_npx",
+      "abc",
+      "node_modules",
+      "@metahub-ai",
+      "mh",
+      "bin",
+      "metahub-mcp.js",
+    );
+    const rows = bootstrapStatus(npxBin);
+    expect(rows.find((r) => r.client === "Cursor")?.state).toBe("wired");
+    // The same entry seen from a global install is "elsewhere".
+    const rows2 = bootstrapStatus("/opt/mh/bin/metahub-mcp.js");
+    expect(rows2.find((r) => r.client === "Cursor")?.state).toBe("wired-elsewhere");
   });
 });

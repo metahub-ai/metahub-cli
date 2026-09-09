@@ -19,9 +19,20 @@ Node ≥ 20, pnpm ≥ 9. `pnpm verify` runs build, typecheck, lint, and tests ac
 - **Commit messages:** `<area>: <one-line summary>` (e.g. `cli: add --json to mh list`, `installer: harden tarball extraction`).
 - Format with Prettier: `pnpm format:check` should be clean.
 
+## End-to-end check
+
+`pnpm bundle && bash scripts/e2e-harness-matrix.sh` installs the freshly built
+tarball into a throwaway prefix, fakes a machine that has every supported
+harness on it (`METAHUB_E2E_HOME`), and walks bootstrap, a real skill install,
+a real MCP install, doctor, refresh, the uninstalls, the malformed-config guard,
+the stdio handshake and the npx-cache launch form. It talks to the production
+portal for the two installs, so it needs network access. Run it before tagging
+a release and whenever you touch the installer's wiring.
+
 ## Releasing
 
-1. Bump versions, update `CHANGELOG.md`.
-2. `pnpm verify && pnpm bundle`.
-3. Publish the standalone tarball to the registry: `pnpm tarball:monorepo` (copies into a sibling monorepo checkout, commit it there).
-4. Optionally `npm publish` the individual packages.
+See [PUBLISHING.md](./PUBLISHING.md). In short: bump `packages/cli/package.json`
+and `CHANGELOG.md`, merge, then publish a GitHub release tagged `v<version>`; the
+`publish-npm.yml` workflow verifies, bundles, publishes `@metahub-ai/mh` to npm,
+and attaches the curl tarballs to the release, which is where
+`registry.metahub.ai/cli/mh-latest.tgz` redirects.

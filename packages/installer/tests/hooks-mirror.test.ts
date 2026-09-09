@@ -96,49 +96,106 @@ describe("wireHook skill mirror — no source", () => {
 });
 
 describe("wireHook skill mirror — detected vs not detected", () => {
-  it("skips clients that aren't detected", async () => {
+  it("skips clients that aren't detected, but always links the Agent Skills dir", async () => {
     writeCanonicalSkill("pdf");
-    // Leave `detected` empty → all non-claude clients skipped.
+    // Leave `detected` empty → every real client is skipped.
     const { wireHook } = await import("../src/hooks");
     const res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
-    expect(res.skillMirrors.length).toBeGreaterThan(0);
-    expect(res.skillMirrors.every((m) => m.status === "skipped-not-detected")).toBe(true);
-  });
-
-  it("writes the transformed rule for a detected client (cursor)", async () => {
-    writeCanonicalSkill("pdf");
-    detected["cursor"] = true;
-    const { wireHook } = await import("../src/hooks");
-    const res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
-    const cursor = res.skillMirrors.find((m) => m.client === "cursor");
-    expect(cursor?.status).toBe("wrote");
-    // The .mdc file the function reports should actually exist on disk.
-    expect(fs.existsSync(cursor!.path)).toBe(true);
-    const written = fs.readFileSync(cursor!.path, "utf8");
-    expect(written).toContain("Work with PDF files"); // description carried into the .mdc
-
-    // The continue/zed rows weren't detected → skipped.
-    const others = res.skillMirrors.filter((m) => m.client !== "cursor");
+    const agents = res.skillMirrors.find((m) => m.client === "agents-dir");
+    expect(agents?.status).toBe("wrote");
+    const others = res.skillMirrors.filter((m) => m.client !== "agents-dir");
+    expect(others.length).toBeGreaterThan(0);
     expect(others.every((m) => m.status === "skipped-not-detected")).toBe(true);
   });
 
-  it("writes for multiple detected clients (cursor + continue + zed)", async () => {
+  it("links ~/.agents/skills/<slug> at the canonical folder", async () => {
+    writeCanonicalSkill("pdf");
+    const { wireHook } = await import("../src/hooks");
+    const res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    const agents = res.skillMirrors.find((m) => m.client === "agents-dir")!;
+    expect(agents.path).toBe(path.join(tmp, ".agents", "skills", "pdf"));
+    expect(fs.lstatSync(agents.path).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(path.join(agents.path, "SKILL.md"), "utf8")).toBe(SKILL_MD);
+    // Recorded in the ledger so uninstall can remove it.
+    const { findWiring } = await import("../src/wirings");
+    const set = findWiring("skill", "pdf")!;
+    expect(
+      set.wirings.some((w) => w.client === "agents-dir" && w.strategy === "skill-dir-link"),
+    ).toBe(true);
+  });
+
+  it("re-linking replaces a stale link but never a foreign directory", async () => {
+    writeCanonicalSkill("pdf");
+    const target = path.join(tmp, ".agents", "skills", "pdf");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.symlinkSync(path.join(tmp, "elsewhere"), target, "dir");
+    const { wireHook } = await import("../src/hooks");
+    let res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    expect(res.skillMirrors.find((m) => m.client === "agents-dir")?.status).toBe("wrote");
+    expect(fs.readlinkSync(target)).toBe(path.join(tmp, ".claude", "skills", "pdf"));
+
+    // A real directory the user made themselves stays put.
+    fs.unlinkSync(target);
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, "SKILL.md"), "# theirs");
+    res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    expect(res.skillMirrors.find((m) => m.client === "agents-dir")?.status).toBe("skipped-exists");
+    expect(fs.readFileSync(path.join(target, "SKILL.md"), "utf8")).toBe("# theirs");
+  });
+
+  it("links into Antigravity's global skills dir only when Antigravity is detected", async () => {
+    writeCanonicalSkill("pdf");
+    const { wireHook } = await import("../src/hooks");
+    let res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    expect(res.skillMirrors.find((m) => m.client === "antigravity")?.status).toBe(
+      "skipped-not-detected",
+    );
+    detected["antigravity"] = true;
+    res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    const ag = res.skillMirrors.find((m) => m.client === "antigravity")!;
+    expect(ag.status).toBe("wrote");
+    expect(ag.path).toBe(path.join(tmp, ".gemini", "config", "skills", "pdf"));
+    expect(fs.lstatSync(ag.path).isSymbolicLink()).toBe(true);
+  });
+
+  it("reports native readers (Cursor, Codex, Gemini CLI, opencode, Goose) without writing", async () => {
     writeCanonicalSkill("pdf");
     detected["cursor"] = true;
+    detected["codex-cli"] = true;
+    detected["gemini-cli"] = true;
+    detected["opencode"] = true;
+    detected["goose"] = true;
+    const { wireHook } = await import("../src/hooks");
+    const res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    for (const client of ["cursor", "codex-cli", "gemini-cli", "opencode", "goose"]) {
+      const m = res.skillMirrors.find((x) => x.client === client);
+      expect(m?.status, client).toBe("native");
+      expect(m?.path, client).toBe(path.join(tmp, ".agents", "skills", "pdf"));
+    }
+    // No Cursor .mdc rule is written any more.
+    expect(fs.existsSync(path.join(tmp, ".cursor", "rules", "pdf.mdc"))).toBe(false);
+    const { findWiring } = await import("../src/wirings");
+    expect(findWiring("skill", "pdf")!.wirings.some((w) => w.client === "cursor")).toBe(false);
+  });
+
+  it("writes transformed rules for detected file-based clients (continue + zed)", async () => {
+    writeCanonicalSkill("pdf");
     detected["continue"] = true;
     detected["zed"] = true;
     const { wireHook } = await import("../src/hooks");
     const res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
-    for (const client of ["cursor", "continue", "zed"]) {
+    for (const client of ["continue", "zed"]) {
       const m = res.skillMirrors.find((x) => x.client === client);
       expect(m?.status).toBe("wrote");
       expect(fs.existsSync(m!.path)).toBe(true);
     }
+    const cont = res.skillMirrors.find((x) => x.client === "continue")!;
+    expect(fs.readFileSync(cont.path, "utf8")).toContain("Work with PDF files");
   });
 
   it("reports an error when the transform write fails", async () => {
     writeCanonicalSkill("pdf");
-    detected["cursor"] = true;
+    detected["continue"] = true;
     const { wireHook } = await import("../src/hooks");
     // Force fs.writeFileSync to throw for the mirror write.
     const realWrite = fs.writeFileSync.bind(fs);
@@ -146,16 +203,69 @@ describe("wireHook skill mirror — detected vs not detected", () => {
       file: fs.PathOrFileDescriptor,
       ...rest: unknown[]
     ) => {
-      if (typeof file === "string" && file.endsWith(".mdc")) {
+      if (typeof file === "string" && file.includes(path.join(".continue", "rules"))) {
         throw new Error("disk full");
       }
       // @ts-expect-error pass-through for non-mirror writes (sidecar, etc.)
       return realWrite(file, ...rest);
     }) as typeof fs.writeFileSync);
     const res = wireHook({ kind: "skill", slug: "pdf", ...baseInput });
-    const cursor = res.skillMirrors.find((m) => m.client === "cursor");
-    expect(cursor?.status).toBe("error");
-    expect(cursor?.error).toMatch(/disk full/);
+    const cont = res.skillMirrors.find((m) => m.client === "continue");
+    expect(cont?.status).toBe("error");
+    expect(cont?.error).toMatch(/disk full/);
+  });
+});
+
+describe("refreshSkillWiring", () => {
+  it("adds wirings for a client that appeared after install, and persists them", async () => {
+    writeCanonicalSkill("pdf");
+    const hooks = await import("../src/hooks");
+    hooks.wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    const { findWiring } = await import("../src/wirings");
+    expect(findWiring("skill", "pdf")!.wirings.some((w) => w.client === "continue")).toBe(false);
+
+    detected["continue"] = true;
+    const first = hooks.refreshSkillWiring("pdf");
+    expect(first.added.map((w) => w.client)).toEqual(["continue"]);
+    expect(fs.existsSync(path.join(tmp, ".continue", "rules", "pdf.md"))).toBe(true);
+    // The ledger now carries the new entry (issue #9).
+    const set = findWiring("skill", "pdf")!;
+    expect(set.wirings.some((w) => w.client === "continue")).toBe(true);
+    expect(set.artifactId).toBe("art_x");
+
+    // A second pass is a no-op for the ledger.
+    const second = hooks.refreshSkillWiring("pdf");
+    expect(second.added).toEqual([]);
+  });
+
+  it("keeps ledger entries it did not touch this pass (legacy Cursor .mdc)", async () => {
+    writeCanonicalSkill("pdf");
+    const { recordWiring, findWiring } = await import("../src/wirings");
+    const legacy = path.join(tmp, ".cursor", "rules", "pdf.mdc");
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.writeFileSync(legacy, "old rule");
+    recordWiring({
+      artifactId: "art_x",
+      kind: "skill",
+      slug: "pdf",
+      installedMs: 1,
+      wirings: [
+        {
+          client: "cursor",
+          path: legacy,
+          strategy: "cursor-rule-mdc",
+          writtenMs: 1,
+          status: "wrote",
+        },
+      ],
+    });
+    const hooks = await import("../src/hooks");
+    hooks.refreshSkillWiring("pdf");
+    const set = findWiring("skill", "pdf")!;
+    expect(set.wirings.some((w) => w.strategy === "cursor-rule-mdc")).toBe(true);
+    // ...so uninstall still removes the old file.
+    hooks.unwireHook("skill", "pdf");
+    expect(fs.existsSync(legacy)).toBe(false);
   });
 });
 
@@ -190,12 +300,32 @@ describe("wireHook plugin / agent ledger recording", () => {
 });
 
 describe("unwireHook ledger walk", () => {
+  it("removes the Agent Skills link but leaves a foreign directory alone", async () => {
+    writeCanonicalSkill("pdf");
+    const hooks = await import("../src/hooks");
+    hooks.wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    const link = path.join(tmp, ".agents", "skills", "pdf");
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    hooks.unwireHook("skill", "pdf");
+    expect(fs.existsSync(link)).toBe(false);
+    // Canonical folder is untouched here (uninstallArtifact removes it).
+    expect(fs.existsSync(path.join(tmp, ".claude", "skills", "pdf", "SKILL.md"))).toBe(true);
+
+    // A directory that is not ours under the same path survives an unwire.
+    hooks.wireHook({ kind: "skill", slug: "pdf", ...baseInput });
+    fs.unlinkSync(link);
+    fs.mkdirSync(link, { recursive: true });
+    fs.writeFileSync(path.join(link, "SKILL.md"), "# theirs");
+    hooks.unwireHook("skill", "pdf");
+    expect(fs.readFileSync(path.join(link, "SKILL.md"), "utf8")).toBe("# theirs");
+  });
+
   it("walks recorded skill wirings: unlinks single-file rules, skips folders", async () => {
     writeCanonicalSkill("pdf");
-    detected["cursor"] = true;
+    detected["continue"] = true;
     const hooks = await import("../src/hooks");
     const res = hooks.wireHook({ kind: "skill", slug: "pdf", ...baseInput });
-    const cursorPath = res.skillMirrors.find((m) => m.client === "cursor")!.path;
+    const cursorPath = res.skillMirrors.find((m) => m.client === "continue")!.path;
     expect(fs.existsSync(cursorPath)).toBe(true);
 
     // unwire should remove the cursor .mdc (single file) but the

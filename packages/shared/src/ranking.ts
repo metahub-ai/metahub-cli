@@ -150,6 +150,153 @@ export function isExactName(item: Pick<RankableArtifact, "slug" | "name">, q: st
   return n.length > 0 && (norm(item.slug) === n || norm(item.name) === n);
 }
 
+/** Search-token variants to try against artifact text, original first.
+ *
+ *  Matching here is substring-based, so a longer query token can never be found
+ *  inside shorter document text. That made every plural query silently lose
+ *  results: `pdfs` matched no artifact that says "pdf", and `agents` matched no
+ *  literal "agent" — while the homepage advertises exactly that register ("find
+ *  me a skill for parsing PDFs"). The reverse direction already worked, since
+ *  "pdf" IS a substring of "pdfs", so only de-pluralisation is needed.
+ *
+ *  Variants are strictly additive: they can widen a match set but never narrow
+ *  one, which is what keeps the portal's SQL prefilter a superset of this
+ *  function (see searchPublicArtifacts).
+ *
+ *  Deliberately not a stemmer — only the trailing-s family, and never where
+ *  trimming would produce a different word ("class", "status", "analysis") or
+ *  gut a short token ("js", "aws", "css"). */
+export function searchTokenVariants(token: string): string[] {
+  const t = norm(token);
+  if (!t) return [];
+  // -ss/-us/-is are not plural markers, and <=3 chars loses meaning entirely.
+  if (t.length <= 3 || /(?:ss|us|is)$/.test(t)) return [t];
+  if (/[^aeiou]ies$/.test(t)) return [t, `${t.slice(0, -3)}y`]; // dependencies → dependency
+  if (/(?:ch|sh|x|z|s)es$/.test(t)) return [t, t.slice(0, -2)]; // boxes → box
+  if (t.endsWith("s")) return [t, t.slice(0, -1)]; // pdfs → pdf
+  return [t];
+}
+
+/** Query words that carry no discriminating power.
+ *
+ *  Tier-4 matching is substring-based over every artifact's description, so a
+ *  lone token like "a" or "for" matches essentially the whole catalog. That is
+ *  why the advertised prompt "find me a skill for parsing PDFs" returned a
+ *  Scrum coach and a logging skill: the stopwords matched everything, and
+ *  popularity then picked the winners. Function words and search-intent verbs
+ *  only — nothing domain-specific, so a real query term is never discarded
+ *  (note "search", "help" and "get" are deliberately absent: they are all
+ *  plausible names for tools in this catalog). */
+const SEARCH_STOPWORDS = new Set([
+  "the",
+  "and",
+  "or",
+  "for",
+  "with",
+  "from",
+  "are",
+  "its",
+  "that",
+  "this",
+  "these",
+  "those",
+  "not",
+  "you",
+  "your",
+  "our",
+  "find",
+  "show",
+  "need",
+  "want",
+  "looking",
+  "please",
+  "give",
+  "best",
+  "some",
+  "any",
+  "something",
+  "anything",
+  "can",
+  "does",
+  "how",
+  "what",
+  "which",
+  "where",
+  "when",
+  "who",
+  "why",
+  "about",
+  "into",
+  "onto",
+  "than",
+  "then",
+  "also",
+  // ── Catalog-kind words ────────────────────────────────────────────────────
+  // These name what the catalog is *made of*, so they match most of it and
+  // discriminate nothing. Measured against the live catalog on 2026-08-10
+  // (3,434 public artifacts) with /api/public/artifacts/search?q=<word>,
+  // keeping every word at or above 25%:
+  //   agent 72% · agents 71% · claude 69% · skill 68% · skills 66% ·
+  //   code 66% · use 46% · tool 45% · tools 43% · mcp 39% · server 25%
+  // Left as real terms because they DO discriminate: plugin/plugins 19%,
+  // user 19%, workflow 22%, data 16%, file 9%, project 8%, using 7%.
+  // Re-measure with that endpoint if the catalog's composition shifts.
+  //
+  // Safe because tiers 1-3 match the WHOLE query untouched: searching "agent"
+  // still hits an artifact named `agent` at tier 1/2, and a query made only of
+  // these words falls back to every token (see searchTerms).
+  "skill",
+  "skills",
+  "agent",
+  "agents",
+  "claude",
+  "code",
+  "tool",
+  "tools",
+  "mcp",
+  "server",
+  "use",
+]);
+
+/** The tokens of `q` that carry signal. Each still needs searchTokenVariants().
+ *
+ *  Falls back to every token when a query is nothing but stopwords, so "the
+ *  best" still returns something rather than nothing. */
+export function searchTerms(q: string): string[] {
+  const tokens = norm(q).split(/\s+/).filter(Boolean);
+  // <=2 chars ("a", "me", "of") never discriminates either.
+  const meaningful = tokens.filter((t) => t.length > 2 && !SEARCH_STOPWORDS.has(t));
+  return meaningful.length > 0 ? meaningful : tokens;
+}
+
+/** How many of the query's terms this artifact matches, across every searchable
+ *  field.
+ *
+ *  Matching is OR-recall (any one term is enough to be a candidate), so without
+ *  this the popularity blend alone decides the order — and a presentation skill
+ *  that merely mentions "pdf" outranked a dedicated PDF parser for the query
+ *  "parsing PDFs". Counting matched terms makes the artifact that answers MORE
+ *  of the query win its tier.
+ *
+ *  Only affects multi-term queries: for a single term every surviving candidate
+ *  scores 1, so existing single-word ordering is untouched. */
+export function matchedTermCount(item: RankableArtifact, q: string): number {
+  const terms = searchTerms(q);
+  if (terms.length === 0) return 0;
+  const hay = [
+    norm(item.slug),
+    norm(item.name),
+    norm(item.tagline),
+    norm(item.description),
+    (item.tags ?? []).map(norm).join(" "),
+  ].join(" ");
+  let matched = 0;
+  for (const t of terms) {
+    if (searchTokenVariants(t).some((v) => hay.includes(v))) matched++;
+  }
+  return matched;
+}
+
 /** Relevance tier (1 best … 4 weakest), or null when nothing matches.
  *  1 exact · 2 prefix(slug/name)/exact-tag · 3 substring(name/tagline) · 4 token overlap(desc/tags). */
 export function relevanceTier(item: RankableArtifact, q: string): 1 | 2 | 3 | 4 | null {
@@ -162,9 +309,17 @@ export function relevanceTier(item: RankableArtifact, q: string): 1 | 2 | 3 | 4 
   if (slug === n || name === n) return 1;
   if (slug.startsWith(n) || name.startsWith(n) || tags.includes(n)) return 2;
   if (name.includes(n) || tagline.includes(n)) return 3;
-  const tokens = n.split(/\s+/).filter(Boolean);
-  const hay = `${norm(item.description)} ${tags.join(" ")}`;
-  if (tokens.length > 0 && tokens.some((t) => hay.includes(t))) return 4;
+  const terms = searchTerms(n);
+  // Scan the same fields as the portal's SQL prefilter (and matchedTermCount).
+  // This was description+tags only, which silently dropped artifacts whose match
+  // lives in the name or slug: "translator pdf" lost the skill literally named
+  // "PDF Translator", even though bare "pdf" found it via the tier-2 slug prefix.
+  // A multi-term query has no tier-1..3 path — those compare the WHOLE query —
+  // so tier 4 must be as wide as the prefilter that fed it, or the prefilter
+  // stops being a superset of the ranker.
+  const hay = `${slug} ${name} ${tagline} ${norm(item.description)} ${tags.join(" ")}`;
+  if (terms.length > 0 && terms.some((t) => searchTokenVariants(t).some((v) => hay.includes(v))))
+    return 4;
   return null;
 }
 
@@ -220,6 +375,9 @@ interface Annotated {
   item: RankableArtifact;
   tier: 1 | 2 | 3 | 4;
   exact: boolean;
+  /** Query terms this artifact matches — orders within a tier, ahead of the
+   *  popularity blend. See matchedTermCount. */
+  coverage: number;
   within: number;
   trending: number;
 }
@@ -246,6 +404,8 @@ function compareBest(a: Annotated, b: Annotated): number {
   }
   // more-relevant tier first (1 best)
   if (a.tier !== b.tier) return a.tier - b.tier;
+  // within a tier, answering MORE of the query beats being more popular
+  if (b.coverage !== a.coverage) return b.coverage - a.coverage;
   // higher blend first
   if (b.within !== a.within) return b.within - a.within;
   // deterministic
@@ -283,6 +443,7 @@ export function rankArtifacts<T extends RankableArtifact>(
         item: it,
         tier: (tier ?? 4) as 1 | 2 | 3 | 4,
         exact: hasQuery && isExactName(it, opts.q),
+        coverage: hasQuery ? matchedTermCount(it, opts.q) : 0,
         within: withinTierScore(it, opts),
         trending: trendingScore(it.installs30d, it.publishedAtMs, opts.nowMs),
       };

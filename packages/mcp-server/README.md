@@ -81,7 +81,7 @@ Plus one resource:
 
 - `metahub://catalog` (both modes): a slim, single-page browse view of the catalog (readme/behavioural fields projected out — they are ~91% of the raw payload). Sets `truncated: true` when the catalog is larger than one page; use `metahub_search` for anything not listed and `metahub_get` for a full record.
 
-`stdio` tools are only registered when the server runs over stdio (`npx -y @metahub/mcp-server` inside an AI client, one process per user). They depend on the local filesystem (`~/.metahub/`) to read the install ledger and the session token; a remote/hosted transport has no such state.
+`stdio` tools are only registered when the server runs over stdio (`metahub-mcp` (or `npx -y --package=@metahub-ai/mh metahub-mcp`) inside an AI client, one process per user). They depend on the local filesystem (`~/.metahub/`) to read the install ledger and the session token; a remote/hosted transport has no such state.
 
 ## Authentication
 

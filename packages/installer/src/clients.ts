@@ -10,11 +10,12 @@
  *     - how to detect the client (does its config dir exist?)
  *     - where its MCP config file lives
  *     - which schema variant to use (mcpServers vs servers vs
- *       context_servers, JSON vs YAML vs TOML)
+ *       context_servers vs mcp, JSON vs YAML vs TOML)
  *
  * For JSON-based clients we read → merge → write the file in place.
  * For YAML / TOML / UI-driven clients we emit a copy-paste snippet
- * the user can apply manually (no extra deps for those parsers).
+ * the user can apply manually (no extra deps for those parsers), or
+ * shell out to the client's own CLI when it ships one (Codex).
  *
  * ─── Platform support ──────────────────────────────────────────────
  * Paths use the installer's shared `getHome()` (which honours
@@ -33,10 +34,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { spawnSync } from "node:child_process";
 import {
+  antigravityMcpConfigPath,
   claudeDesktopDir,
   documentsDir,
+  geminiDir,
+  geminiSettingsFile,
   getHome,
+  openCodeConfigPath,
   userConfigDir,
   writePrivateFile,
 } from "./paths.js";
@@ -63,7 +69,7 @@ export interface McpEnv {
 
 export interface ClientWriteResult {
   client: string;
-  /** "wrote" — auto-merged. "manual" — emit snippet. "skipped" — not detected. */
+  /** "wrote" — auto-merged. "manual" — emit snippet. "skipped" — not detected or not writable. */
   status: "wrote" | "manual" | "skipped";
   configPath: string;
   /** Set when status === "manual" — what the user should paste in. */
@@ -99,12 +105,49 @@ function exists(p: string): boolean {
   }
 }
 
-function readJson<T>(file: string, fallback: T): T {
+/**
+ * Outcome of reading a client's JSON config.
+ *
+ * "absent" and "invalid" used to collapse into the same empty object,
+ * so a config that existed but could not be parsed (a half-written
+ * file, a stray trailing comma, a `.jsonc` full of comments) was
+ * silently replaced by `{ mcpServers: { <slug>: … } }` on the next
+ * wire — every other server the user had configured was gone. The
+ * three states are kept apart so an invalid file is never written to.
+ */
+export type JsonConfigRead =
+  | { state: "absent" }
+  | { state: "ok"; data: Record<string, unknown> }
+  | { state: "invalid"; error: string };
+
+export function readJsonConfig(file: string): JsonConfigRead {
+  let raw: string;
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8")) as T;
-  } catch {
-    return fallback;
+    raw = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { state: "absent" };
+    return { state: "invalid", error: (err as Error).message };
   }
+  // An empty file is what several clients leave behind before their
+  // first save (Antigravity ships a zero-byte mcp_config.json); treat
+  // it as an empty object rather than as corruption.
+  if (raw.trim().length === 0) return { state: "ok", data: {} };
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { state: "invalid", error: "top-level value is not an object" };
+    }
+    return { state: "ok", data: parsed as Record<string, unknown> };
+  } catch (err) {
+    return { state: "invalid", error: (err as Error).message };
+  }
+}
+
+function invalidConfigWarning(file: string, error: string): string {
+  return (
+    `${file} exists but is not valid JSON (${error}). ` +
+    `Left untouched so nothing is lost — fix or remove it, then re-run.`
+  );
 }
 
 /**
@@ -159,8 +202,17 @@ function jsonAdapter(opts: {
     configPath: opts.configPath,
     wire(slug, launch, env) {
       const file = opts.configPath();
+      const read = readJsonConfig(file);
+      if (read.state === "invalid") {
+        return {
+          client: opts.name,
+          status: "skipped",
+          configPath: file,
+          warning: invalidConfigWarning(file, read.error),
+        };
+      }
       try {
-        const config = readJson<Record<string, unknown>>(file, {});
+        const config = read.state === "ok" ? read.data : {};
         const existing = (config[key] as Record<string, unknown>) ?? {};
         existing[slug] = { command: launch.command, args: launch.args, env };
         config[key] = existing;
@@ -177,8 +229,9 @@ function jsonAdapter(opts: {
     },
     unwire(slug) {
       const file = opts.configPath();
-      if (!exists(file)) return;
-      const config = readJson<Record<string, unknown>>(file, {});
+      const read = readJsonConfig(file);
+      if (read.state !== "ok") return;
+      const config = read.data;
       const existing = (config[key] as Record<string, unknown>) ?? {};
       if (slug in existing) {
         delete existing[slug];
@@ -252,6 +305,163 @@ function manualAdapter(opts: {
   };
 }
 
+/**
+ * opencode declares MCP servers under the `mcp` key of its global
+ * config as `{ type: "local", command: [cmd, ...args], environment,
+ * enabled }` — a different shape from the `mcpServers` family, so it
+ * gets its own adapter rather than a `schemaKey`.
+ */
+function opencodeAdapter(): ClientAdapter {
+  const name = "opencode";
+  return {
+    name,
+    detect: () => exists(path.join(userConfigDir(), "opencode")),
+    configPath: () => openCodeConfigPath(),
+    wire(slug, launch, env) {
+      const file = openCodeConfigPath();
+      const read = readJsonConfig(file);
+      if (read.state === "invalid") {
+        return {
+          client: name,
+          status: "skipped",
+          configPath: file,
+          warning: invalidConfigWarning(file, read.error),
+        };
+      }
+      try {
+        const config = read.state === "ok" ? read.data : {};
+        const existing = (config.mcp as Record<string, unknown>) ?? {};
+        existing[slug] = {
+          type: "local",
+          command: [launch.command, ...launch.args],
+          environment: env,
+          enabled: true,
+        };
+        config.mcp = existing;
+        writeJson(file, config);
+        return { client: name, status: "wrote", configPath: file };
+      } catch (err) {
+        return {
+          client: name,
+          status: "skipped",
+          configPath: file,
+          warning: (err as Error).message,
+        };
+      }
+    },
+    unwire(slug) {
+      const file = openCodeConfigPath();
+      const read = readJsonConfig(file);
+      if (read.state !== "ok") return;
+      const config = read.data;
+      const existing = (config.mcp as Record<string, unknown>) ?? {};
+      if (slug in existing) {
+        delete existing[slug];
+        config.mcp = existing;
+        writeJson(file, config);
+      }
+    },
+  };
+}
+
+/**
+ * The `codex` binary, when it is on PATH. `METAHUB_CODEX_BIN` overrides
+ * the lookup (tests point it at a stub; an empty value forces the
+ * snippet path).
+ */
+export function codexBinary(): string | null {
+  const override = process.env.METAHUB_CODEX_BIN;
+  if (override !== undefined) return override.length > 0 && exists(override) ? override : null;
+  const names = process.platform === "win32" ? ["codex.cmd", "codex.exe", "codex"] : ["codex"];
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!dir) continue;
+    for (const n of names) {
+      const candidate = path.join(dir, n);
+      if (exists(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+function codexSnippet(slug: string, launch: LaunchSpec, env: McpEnv): string {
+  const lines = [
+    `[mcp_servers.${slug}]`,
+    `command = ${JSON.stringify(launch.command)}`,
+    `args = [${launch.args.map((a) => JSON.stringify(a)).join(", ")}]`,
+  ];
+  const kv = Object.entries(env).filter(([, v]) => typeof v === "string" && v.length > 0);
+  if (kv.length > 0) {
+    lines.push("", `[mcp_servers.${slug}.env]`);
+    for (const [k, v] of kv) lines.push(`${k} = ${JSON.stringify(v)}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Codex CLI keeps MCP servers in `~/.codex/config.toml`. There is no
+ * TOML writer in this package, so when the `codex` binary is present
+ * the entry is added through `codex mcp add` (the supported way to
+ * edit that file); otherwise the TOML snippet is returned for pasting.
+ */
+function codexAdapter(): ClientAdapter {
+  const name = "Codex CLI";
+  const configPath = () => path.join(home(), ".codex", "config.toml");
+  const codexEnv = () => ({
+    ...process.env,
+    // Keep codex pointed at the same home the installer resolves, so a
+    // sandboxed run never edits the real ~/.codex/config.toml.
+    CODEX_HOME: process.env.METAHUB_E2E_HOME
+      ? path.join(home(), ".codex")
+      : (process.env.CODEX_HOME ?? path.join(home(), ".codex")),
+  });
+  const run = (bin: string, args: string[]) =>
+    spawnSync(bin, args, {
+      encoding: "utf8",
+      timeout: 30_000,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: codexEnv(),
+      shell: process.platform === "win32",
+    });
+  return {
+    name,
+    detect: () => exists(path.join(home(), ".codex")),
+    configPath,
+    wire(slug, launch, env) {
+      const file = configPath();
+      const manual = (): ClientWriteResult => ({
+        client: name,
+        status: "manual",
+        configPath: file,
+        manualSnippet: codexSnippet(slug, launch, env),
+      });
+      const bin = codexBinary();
+      if (!bin) return manual();
+      // `add` does not replace an existing entry; drop any old one first.
+      run(bin, ["mcp", "remove", slug]);
+      const args = ["mcp", "add", slug];
+      for (const [k, v] of Object.entries(env)) {
+        if (typeof v === "string" && v.length > 0) args.push("--env", `${k}=${v}`);
+      }
+      args.push("--", launch.command, ...launch.args);
+      const res = run(bin, args);
+      if (res.status === 0) return { client: name, status: "wrote", configPath: file };
+      const detail =
+        `${res.stderr ?? ""}\n${res.stdout ?? ""}`.trim().split("\n").filter(Boolean).pop() ??
+        res.error?.message ??
+        `exit ${res.status}`;
+      return {
+        ...manual(),
+        warning: `codex mcp add failed (${detail}) — paste the snippet instead.`,
+      };
+    },
+    unwire(slug) {
+      const bin = codexBinary();
+      if (!bin) return;
+      run(bin, ["mcp", "remove", slug]);
+    },
+  };
+}
+
 // ─── adapter list — order matters: matches catalog order ────────────────────
 
 export const CLIENT_ADAPTERS: ClientAdapter[] = [
@@ -272,17 +482,13 @@ export const CLIENT_ADAPTERS: ClientAdapter[] = [
     configPath: () => path.join(home(), ".cursor", "mcp.json"),
   }),
 
-  // 4. Antigravity — UI-driven; emit a snippet
-  manualAdapter({
+  // 4. Antigravity — JSON at ~/.gemini/config/mcp_config.json (legacy
+  //    ~/.gemini/antigravity/mcp_config.json), standard `mcpServers` schema.
+  jsonAdapter({
     name: "Antigravity",
-    detect: () => exists(path.join(home(), ".antigravity")),
-    configPath: () => "Antigravity → Settings → MCP servers",
-    snippet: (slug, launch, env) =>
-      JSON.stringify(
-        { mcpServers: { [slug]: { command: launch.command, args: launch.args, env } } },
-        null,
-        2,
-      ),
+    detect: () =>
+      exists(path.join(geminiDir(), "antigravity")) || exists(path.join(home(), ".antigravity")),
+    configPath: () => antigravityMcpConfigPath(),
   }),
 
   // 5. VS Code — uses `servers` key, in .vscode/mcp.json (workspace).
@@ -360,16 +566,18 @@ ${launch.args.map((a) => `      - ${a}`).join("\n")}
     enabled: true`,
   }),
 
-  // 11. Codex CLI — TOML
-  manualAdapter({
-    name: "Codex CLI",
-    detect: () => exists(path.join(home(), ".codex")),
-    configPath: () => path.join(home(), ".codex", "config.toml"),
-    snippet: (slug, launch) =>
-      `[mcp_servers.${slug}]
-command = "${launch.command}"
-args = [${launch.args.map((a) => `"${a}"`).join(", ")}]`,
+  // 11. Codex CLI — TOML via `codex mcp add`, snippet otherwise
+  codexAdapter(),
+
+  // 12. Gemini CLI — JSON at ~/.gemini/settings.json, standard schema
+  jsonAdapter({
+    name: "Gemini CLI",
+    detect: () => exists(geminiDir()),
+    configPath: () => geminiSettingsFile(),
   }),
+
+  // 13. opencode — JSON at ~/.config/opencode/opencode.json(c), `mcp` key
+  opencodeAdapter(),
 ];
 
 /**
@@ -388,9 +596,22 @@ export function wireMcpAcrossClients(
   slug: string,
   launch: LaunchSpec,
   env: McpEnv,
+  opts: {
+    /**
+     * Restrict the write to these adapter names. `mh bootstrap` passes
+     * the clients whose entry is missing or stale, so a client that is
+     * already correct is not rewritten (and reported as "wired") on
+     * every run just because a paste-snippet client sits beside it.
+     */
+    only?: string[];
+  } = {},
 ): ClientWriteResult[] {
   const detected = CLIENT_ADAPTERS.filter((a) => a.detect());
-  const targets = detected.length > 0 ? detected : [CLIENT_ADAPTERS[0]!];
+  let targets = detected.length > 0 ? detected : [CLIENT_ADAPTERS[0]!];
+  if (opts.only) {
+    const wanted = new Set(opts.only);
+    targets = targets.filter((a) => wanted.has(a.name));
+  }
   return targets.map((a) => a.wire(slug, launch, env));
 }
 
