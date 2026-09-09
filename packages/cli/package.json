@@ -1,7 +1,7 @@
 {
   "name": "@metahub-ai/mh",
-  "version": "0.1.0",
-  "description": "MetaHub CLI — install, update, search, list, and uninstall AI artifacts.",
+  "version": "0.2.0",
+  "description": "MetaHub CLI \u2014 install, update, search, list, and uninstall AI artifacts.",
   "license": "MIT",
   "homepage": "https://registry.metahub.ai",
   "repository": {

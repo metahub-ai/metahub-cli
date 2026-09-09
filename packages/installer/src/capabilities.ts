@@ -21,8 +21,8 @@
  * entry here and a transformer in `skill-transformers.ts`. No code
  * paths in install.ts / hooks.ts / uninstall.ts need to change.
  */
-import os from "node:os";
 import path from "node:path";
+import { claudeDesktopDir, getHome, userConfigDir } from "./paths.js";
 import type { ArtifactKind } from "@metahub/shared";
 
 /**
@@ -119,27 +119,6 @@ export interface CapabilityRow {
   targetPath: (slug: string) => string | null;
 }
 
-const HOME = os.homedir();
-
-function xdgConfigDir(): string {
-  if (process.platform === "darwin") return path.join(HOME, ".config");
-  if (process.platform === "win32") {
-    return process.env.APPDATA ?? path.join(HOME, "AppData", "Roaming");
-  }
-  return process.env.XDG_CONFIG_HOME ?? path.join(HOME, ".config");
-}
-
-function claudeDesktopDir(): string {
-  if (process.platform === "darwin") {
-    return path.join(HOME, "Library", "Application Support", "Claude");
-  }
-  if (process.platform === "win32") {
-    const appdata = process.env.APPDATA ?? path.join(HOME, "AppData", "Roaming");
-    return path.join(appdata, "Claude");
-  }
-  return path.join(HOME, ".config", "Claude");
-}
-
 /**
  * The matrix. One row per (client, kind) — we omit "none" rows to
  * keep the table easy to read. Anything not listed = none.
@@ -166,28 +145,28 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     kind: "skill",
     strategy: "anthropic-skill-md",
     reload: "hot-mtime",
-    targetPath: (slug) => path.join(HOME, ".claude", "skills", slug),
+    targetPath: (slug) => path.join(getHome(), ".claude", "skills", slug),
   },
   {
     client: "cursor",
     kind: "skill",
     strategy: "cursor-rule-mdc",
     reload: "hot-mtime",
-    targetPath: (slug) => path.join(HOME, ".cursor", "rules", `${slug}.mdc`),
+    targetPath: (slug) => path.join(getHome(), ".cursor", "rules", `${slug}.mdc`),
   },
   {
     client: "continue",
     kind: "skill",
     strategy: "continue-rule-md",
     reload: "hot-mtime",
-    targetPath: (slug) => path.join(HOME, ".continue", "rules", `${slug}.md`),
+    targetPath: (slug) => path.join(getHome(), ".continue", "rules", `${slug}.md`),
   },
   {
     client: "zed",
     kind: "skill",
     strategy: "zed-prompt-md",
     reload: "hot-mtime",
-    targetPath: (slug) => path.join(xdgConfigDir(), "zed", "prompts", `${slug}.md`),
+    targetPath: (slug) => path.join(userConfigDir(), "zed", "prompts", `${slug}.md`),
   },
 
   // ─── plugins ───────────────────────────────────────────────────────
@@ -197,7 +176,7 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     strategy: "claude-plugin",
     reload: "restart-required",
     reloadHint: "Restart Claude Code so it discovers the new plugin bundle.",
-    targetPath: (slug) => path.join(HOME, ".claude", "plugins", slug),
+    targetPath: (slug) => path.join(getHome(), ".claude", "plugins", slug),
   },
 
   // ─── MCP servers ──────────────────────────────────────────────────
@@ -207,7 +186,7 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     strategy: "mcp-json",
     reload: "mcp-rpc",
     reloadHint: "Run `/mcp` in Claude Code to reconnect.",
-    targetPath: () => path.join(HOME, ".claude.json"),
+    targetPath: () => path.join(getHome(), ".claude.json"),
   },
   {
     client: "claude-desktop",
@@ -222,7 +201,7 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     kind: "mcp",
     strategy: "mcp-json",
     reload: "hot-mtime",
-    targetPath: () => path.join(HOME, ".cursor", "mcp.json"),
+    targetPath: () => path.join(getHome(), ".cursor", "mcp.json"),
   },
   {
     client: "antigravity",
@@ -245,21 +224,21 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     kind: "mcp",
     strategy: "mcp-json",
     reload: "hot-mtime",
-    targetPath: () => path.join(xdgConfigDir(), "zed", "settings.json"),
+    targetPath: () => path.join(userConfigDir(), "zed", "settings.json"),
   },
   {
     client: "windsurf",
     kind: "mcp",
     strategy: "mcp-json",
     reload: "hot-mtime",
-    targetPath: () => path.join(HOME, ".codeium", "windsurf", "mcp_config.json"),
+    targetPath: () => path.join(getHome(), ".codeium", "windsurf", "mcp_config.json"),
   },
   {
     client: "continue",
     kind: "mcp",
     strategy: "mcp-manual",
     reload: "hot-mtime",
-    targetPath: () => path.join(HOME, ".continue", "config.yaml"),
+    targetPath: () => path.join(getHome(), ".continue", "config.yaml"),
   },
   {
     client: "cline",
@@ -275,7 +254,7 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     strategy: "mcp-manual",
     reload: "restart-required",
     reloadHint: "Restart Goose so the new extension is picked up.",
-    targetPath: () => path.join(xdgConfigDir(), "goose", "config.yaml"),
+    targetPath: () => path.join(userConfigDir(), "goose", "config.yaml"),
   },
   {
     client: "codex-cli",
@@ -283,7 +262,7 @@ export const CAPABILITY_MATRIX: CapabilityRow[] = [
     strategy: "mcp-manual",
     reload: "restart-required",
     reloadHint: "Restart your Codex CLI shell so the new MCP server is loaded.",
-    targetPath: () => path.join(HOME, ".codex", "config.toml"),
+    targetPath: () => path.join(getHome(), ".codex", "config.toml"),
   },
 
   // ─── agents ────────────────────────────────────────────────────────

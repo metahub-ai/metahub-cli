@@ -1,7 +1,7 @@
 {
   "name": "@metahub/mcp-server",
-  "version": "0.1.0",
-  "description": "MetaHub MCP server — search and install AI artifacts from inside any MCP-capable AI client.",
+  "version": "0.2.0",
+  "description": "MetaHub MCP server \u2014 search and install AI artifacts from inside any MCP-capable AI client.",
   "type": "module",
   "bin": {
     "metahub-mcp": "./bin/metahub-mcp.js"

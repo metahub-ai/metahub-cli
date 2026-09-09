@@ -1,7 +1,7 @@
 {
   "name": "@metahub/auth",
-  "version": "0.1.0",
-  "description": "Auth machinery for MetaHub clients — token persistence + GitHub device-code flow.",
+  "version": "0.2.0",
+  "description": "Auth machinery for MetaHub clients \u2014 token persistence + GitHub device-code flow.",
   "license": "MIT",
   "homepage": "https://registry.metahub.ai",
   "repository": {

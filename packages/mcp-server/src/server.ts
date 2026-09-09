@@ -33,11 +33,14 @@ import type {
   installArtifact as installArtifactLib,
   uninstallArtifact as uninstallArtifactLib,
   searchPublicArtifacts as searchPublicArtifactsLib,
+  getPublicArtifact as getPublicArtifactLib,
+  listPublicArtifacts as listPublicArtifactsLib,
 } from "@metahub/installer";
 import { z } from "zod";
-import { fetchRegistry } from "./registry-client.js";
+import { fetchRegistry, hasRegistryConfigured } from "./registry-client.js";
 import { searchItems, type SearchInput } from "./tools/search.js";
-import { getItem } from "./tools/get.js";
+import { fetchArtifact } from "./tools/get.js";
+import { fetchCatalog } from "./tools/catalog.js";
 import { listInstalledArtifacts } from "./tools/list-installed.js";
 import { installCommand } from "./tools/install-command.js";
 import { installArtifactTool } from "./tools/install.js";
@@ -53,7 +56,7 @@ import { PORTAL_BEARER_UNSUPPORTED_HINT, SIGN_IN_HINT } from "./lib/host.js";
 import { registryUrl } from "./env.js";
 
 const SERVER_NAME = "metahub";
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = "0.2.0";
 
 const ITEM_KIND = z.enum(["skill", "mcp", "agent", "plugin"]);
 
@@ -70,8 +73,16 @@ const SEARCH_SCHEMA = {
 };
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+/**
+ * Matches the portal's own slug column. The charset alone already
+ * blocks traversal and shell metacharacters; the bound stops a
+ * multi-kilobyte slug from reaching a filesystem path (ENAMETOOLONG)
+ * or an `mh install …/<slug>` string.
+ */
+const SLUG_MAX = 128;
 const SLUG_SCHEMA = z
   .string()
+  .max(SLUG_MAX, `slug must be at most ${SLUG_MAX} characters`)
   .regex(SLUG_RE, "slug must be lower-case alphanumerics + hyphens (length ≥ 2)");
 
 const GET_SCHEMA = {
@@ -180,6 +191,10 @@ export interface BuildServerOptions {
   uninstallArtifact?: typeof uninstallArtifactLib;
   /** Test seam — override the portal search entry point. */
   searchPublicArtifacts?: typeof searchPublicArtifactsLib;
+  /** Test seam — override the portal single-artifact lookup (`metahub_get`). */
+  getPublicArtifact?: typeof getPublicArtifactLib;
+  /** Test seam — override the portal catalog listing (`metahub://catalog`). */
+  listPublicArtifacts?: typeof listPublicArtifactsLib;
   /** Test seam — override device-flow start. */
   startDeviceCodeFlow?: typeof startDeviceCodeFlow;
   /** Test seam — override device-flow poll. */
@@ -277,6 +292,18 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
   });
 
   const load = () => fetchRegistry({ fetcher: opts.fetcher, url: opts.url });
+  /**
+   * Is an optional baked catalog available as a degraded fallback?
+   * True when the embedder injected one (tests, self-hosters calling
+   * `buildServer` directly) or `METAHUB_REGISTRY_URL` is set. When
+   * false the catalog tools surface the portal's own error instead of
+   * failing against a snapshot that was never configured.
+   */
+  // Gated on `url`, not on `fetcher`: a bare fetcher with no URL would
+  // report a fallback that `fetchRegistry` then refuses to perform (it
+  // throws NoRegistryConfiguredError on a null URL), masking the portal's
+  // real error with "no baked catalog configured".
+  const registryConfigured = () => Boolean(opts.url) || hasRegistryConfigured();
   const readToken = opts.readPersistedToken ?? readPersistedToken;
 
   server.registerTool(
@@ -284,9 +311,14 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
     {
       title: "Search MetaHub",
       description:
-        "Search the MetaHub catalog of AI skills, MCP servers, agents, and plugins. " +
+        "Search the MetaHub registry — the marketplace/app store/catalog of installable AI " +
+        "skills, MCP servers, agents, and plugins for Claude Code, Cursor, and other AI " +
+        "clients. Use this to find, discover, or browse a new capability, tool, extension, " +
+        "or integration to add to the user's editor (for example \"find me a skill for " +
+        'PDFs", "is there an MCP server for Postgres?", "what plugins exist for X"). ' +
         "Results are ranked by relevance, then by popularity and quality signals; an exact " +
-        "name or slug match is always returned first.",
+        "name or slug match is always returned first. Each hit includes the publisher's own " +
+        "description — read it before recommending or installing anything.",
       inputSchema: SEARCH_SCHEMA,
     },
     async (input) => {
@@ -294,6 +326,7 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
         const { hits, degraded } = await searchItems(input as SearchInput, {
           searcher: opts.searchPublicArtifacts,
           registryLoader: load,
+          registryConfigured,
         });
         const payload: Record<string, unknown> = { count: hits.length, hits };
         if (degraded) payload.degraded = true;
@@ -311,15 +344,19 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
     {
       title: "Get artifact details",
       description:
-        "Fetch the full record for one MetaHub artifact by kind and slug. " +
-        "Use this after `metahub_search` to inspect README, install snippets, version, etc.",
+        "Fetch the full details for one MetaHub listing by kind and slug — readme, version, " +
+        "author, repo, ratings, and what it actually does. Use this after `metahub_search` to " +
+        "inspect a candidate before installing it.",
       inputSchema: GET_SCHEMA,
     },
     async (input) => {
       try {
-        const registry = await load();
-        const item = getItem(registry.items, input);
-        if (!item) {
+        const { artifact, degraded } = await fetchArtifact(input, {
+          portalGet: opts.getPublicArtifact,
+          registryLoader: load,
+          registryConfigured,
+        });
+        if (!artifact) {
           return {
             isError: true,
             content: [
@@ -330,8 +367,9 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
             ],
           };
         }
+        const payload = degraded ? { ...artifact, degraded: true } : artifact;
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(item, null, 2) }],
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
         };
       } catch (err) {
         return toolError("metahub_get", err);
@@ -344,9 +382,9 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
     {
       title: "Generate install command",
       description:
-        "Return the exact `mh install <kind>/<slug>` command for a MetaHub artifact. " +
-        "The MCP server can install directly via `metahub_install`; this tool is for users " +
-        "who prefer running the CLI themselves.",
+        "Return the exact `mh install <kind>/<slug>` terminal command for a MetaHub listing. " +
+        "Only for users who explicitly want to run the CLI themselves — prefer " +
+        "`metahub_install`, which installs directly without a terminal step.",
       inputSchema: KIND_SLUG_SCHEMA,
     },
     async (input) => {
@@ -368,9 +406,10 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
       {
         title: "Install a MetaHub artifact",
         description:
-          "Install a MetaHub artifact (skill, MCP server, agent, or plugin) directly into the " +
-          "detected AI clients on this machine. No CLI required. The user should restart their " +
-          "AI client to pick up the new artifact.",
+          "Install/add/set up a MetaHub artifact (skill, MCP server, agent, or plugin) directly " +
+          "into the AI clients detected on this machine — Claude Code, Cursor, and others. " +
+          "Downloads it and wires it up; no CLI required. Run metahub_search first to find the " +
+          "slug. The user should restart their AI client to pick up the new artifact.",
         inputSchema: KIND_SLUG_SCHEMA,
       },
       async (input) => {
@@ -392,8 +431,8 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
       {
         title: "Uninstall a MetaHub artifact",
         description:
-          "Remove a previously installed MetaHub artifact. Deletes its install directory and " +
-          "unwires it from any AI clients it was registered with.",
+          "Uninstall/remove/delete a MetaHub artifact the user previously installed. Deletes its " +
+          "install directory and unwires it from any AI clients it was registered with.",
         inputSchema: KIND_SLUG_SCHEMA,
       },
       async (input) => {
@@ -415,8 +454,8 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
       {
         title: "List installed MetaHub artifacts",
         description:
-          "List MetaHub artifacts already installed on this machine. " +
-          "Returns an empty list if nothing has been installed yet.",
+          "List what the user already has installed from MetaHub on this machine, with versions " +
+          "and install paths. Returns an empty list if nothing has been installed yet.",
         inputSchema: {},
       },
       async () => {
@@ -609,7 +648,7 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
       {
         title: "List my published MetaHub artifacts",
         description:
-          "List artifacts published by the signed-in MetaHub user. " +
+          "List what the signed-in user has published to MetaHub as an author. " +
           "Requires sign-in by calling metahub_signin_begin then metahub_signin_complete. " +
           "Returns kind, slug, name, version, visibility, and publish timestamp.",
         inputSchema: {},
@@ -646,8 +685,9 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
       {
         title: "Observability stats for one of my artifacts",
         description:
-          "Fetch publisher observability data (invocations, p50/p95 latency, top models/tools, " +
-          "handoffs, error rate, recent errors) for one artifact the signed-in user owns. " +
+          "Publisher analytics/observability/telemetry for one listing the signed-in user " +
+          "published: invocations, p50/p95 latency, top models and tools, handoffs, error rate, " +
+          'and recent errors. Answers "how is my skill doing?". ' +
           "Requires sign-in by calling metahub_signin_begin then metahub_signin_complete.",
         inputSchema: MY_STATS_SCHEMA,
       },
@@ -707,13 +747,17 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
     },
     async (uri) => {
       try {
-        const registry = await load();
+        const catalog = await fetchCatalog({
+          portalList: opts.listPublicArtifacts,
+          registryLoader: load,
+          registryConfigured,
+        });
         return {
           contents: [
             {
               uri: uri.href,
               mimeType: "application/json",
-              text: JSON.stringify(registry, null, 2),
+              text: JSON.stringify(catalog, null, 2),
             },
           ],
         };
@@ -729,6 +773,19 @@ export function buildServer(opts: BuildServerOptions = {}): McpServer {
 }
 
 /** Exposed for diagnostics / sanity-check logging. */
-export function serverConfig(): { name: string; version: string; registryUrl: string } {
-  return { name: SERVER_NAME, version: SERVER_VERSION, registryUrl: registryUrl() };
+export function serverConfig(): {
+  name: string;
+  version: string;
+  /** The optional baked-catalog override, or null when unset. */
+  registryUrl: string | null;
+  /** Human-readable description of where catalog reads go. */
+  catalogSource: string;
+} {
+  const url = registryUrl();
+  return {
+    name: SERVER_NAME,
+    version: SERVER_VERSION,
+    registryUrl: url,
+    catalogSource: url ? `baked catalog ${url}` : "portal public catalog API",
+  };
 }

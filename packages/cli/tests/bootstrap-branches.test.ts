@@ -36,8 +36,17 @@ vi.mock("@metahub/installer", () => ({
   unwireMcpAcrossClients: (...args: unknown[]) => unwireSpy(...(args as [])),
 }));
 
+const MOCK_DEFAULT_REGISTRY_URL = "https://registry.metahub.ai";
+
 vi.mock("@metahub/auth", () => ({
   loadAuthConfig: () => authConfig,
+  DEFAULT_REGISTRY_URL: MOCK_DEFAULT_REGISTRY_URL,
+  // Mirrors the real helper: a registryUrl that is empty, or merely the
+  // default the config layer always fills in, is not a user choice.
+  explicitRegistryUrl: () => {
+    const chosen = authConfig.registryUrl;
+    return chosen && chosen.length > 0 && chosen !== MOCK_DEFAULT_REGISTRY_URL ? chosen : undefined;
+  },
 }));
 
 async function freshBootstrap() {
@@ -218,14 +227,14 @@ describe("bootstrapMetahubMcp — wiring orchestration", () => {
     expect(res.bin).toContain("metahub-mcp.js");
   });
 
-  it("defaults METAHUB_REGISTRY_URL to the portal endpoint when auth config has none", async () => {
+  it("omits METAHUB_REGISTRY_URL entirely when auth config has no override", async () => {
     authConfig = { portalUrl: "https://portal.test", registryUrl: "" };
     adapters = [{ name: "Cursor", detect: () => true, configPath: () => "/home/.cursor/mcp.json" }];
     vi.spyOn(fs, "readFileSync").mockReturnValue(JSON.stringify({ servers: {} }));
     const { bootstrapMetahubMcp } = await freshBootstrap();
     bootstrapMetahubMcp();
     const [, , env] = wireSpy.mock.calls[0] as [string, unknown, Record<string, string>];
-    expect(env.METAHUB_REGISTRY_URL).toContain("metahub.ai");
+    expect(env).not.toHaveProperty("METAHUB_REGISTRY_URL");
   });
 
   it("force=true re-wires even a client that is already wired", async () => {

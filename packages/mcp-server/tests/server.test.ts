@@ -47,10 +47,17 @@ async function connect(mode: "stdio" | "http" = "stdio", extra: Partial<BuildSer
     fetcher: fixtureFetcher(),
     url: "https://test/registry.json",
     mode,
-    // Default the portal search to a throwing stub so metahub_search degrades to
-    // the baked-registry fallback (the injected fetcher) instead of hitting the
-    // real portal over the network. Individual tests override via `extra`.
+    // Default every portal call to a throwing stub so the catalog tools degrade
+    // to the baked-registry fallback (the injected fetcher) instead of hitting
+    // the real portal over the network. Individual tests override via `extra`.
+    // Without this a unit test would make a live HTTPS request and hang.
     searchPublicArtifacts: async () => {
+      throw new Error("portal unavailable (test)");
+    },
+    getPublicArtifact: async () => {
+      throw new Error("portal unavailable (test)");
+    },
+    listPublicArtifacts: async () => {
       throw new Error("portal unavailable (test)");
     },
     ...extra,
@@ -514,6 +521,27 @@ describe("buildServer (integration via InMemoryTransport)", () => {
     const item = JSON.parse(content[0]!.text) as { slug: string; name: string };
     expect(item.slug).toBe("pdf");
     expect(item.name).toBe("PDF Skill");
+  });
+
+  it("rejects a slug longer than the 128-char bound", async () => {
+    // The charset alone blocks traversal and shell metacharacters, but an
+    // unbounded slug still reaches a filesystem path and the generated
+    // `mh install …/<slug>` string.
+    const { client } = await connect();
+    const res = await client.callTool({
+      name: "metahub_install_command",
+      arguments: { kind: "skill", slug: "a".repeat(129) },
+    });
+    expect(res.isError).toBe(true);
+  });
+
+  it("still accepts a slug at exactly the 128-char bound", async () => {
+    const { client } = await connect();
+    const res = await client.callTool({
+      name: "metahub_install_command",
+      arguments: { kind: "skill", slug: "a".repeat(128) },
+    });
+    expect(res.isError).toBeFalsy();
   });
 
   it("returns the mh install command from metahub_install_command", async () => {

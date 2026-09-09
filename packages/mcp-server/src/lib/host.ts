@@ -4,7 +4,7 @@
  * came from the MCP server" rather than "the CLI."
  */
 export const MCP_SERVER_HOST = "metahub-mcp-server";
-export const MCP_SERVER_VERSION = "0.1.0";
+export const MCP_SERVER_VERSION = "0.2.0";
 
 /**
  * Canonical message returned when an authenticated tool is called

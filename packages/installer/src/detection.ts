@@ -12,11 +12,9 @@
  * pulling in the MCP-write surface.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { ClientId } from "./capabilities.js";
-
-const HOME = os.homedir();
+import { claudeDesktopDir, documentsDir, getHome, userConfigDir } from "./paths.js";
 
 function exists(p: string): boolean {
   try {
@@ -25,34 +23,6 @@ function exists(p: string): boolean {
   } catch {
     return false;
   }
-}
-
-function xdgConfigDir(): string {
-  if (process.platform === "darwin") return path.join(HOME, ".config");
-  if (process.platform === "win32") {
-    return process.env.APPDATA ?? path.join(HOME, "AppData", "Roaming");
-  }
-  return process.env.XDG_CONFIG_HOME ?? path.join(HOME, ".config");
-}
-
-function claudeDesktopDir(): string {
-  if (process.platform === "darwin") {
-    return path.join(HOME, "Library", "Application Support", "Claude");
-  }
-  if (process.platform === "win32") {
-    const appdata = process.env.APPDATA ?? path.join(HOME, "AppData", "Roaming");
-    return path.join(appdata, "Claude");
-  }
-  return path.join(HOME, ".config", "Claude");
-}
-
-function documentsDir(): string {
-  if (process.platform === "win32") {
-    const onedrive = process.env.OneDrive ?? process.env.OneDriveConsumer;
-    if (onedrive) return path.join(onedrive, "Documents");
-    return path.join(HOME, "Documents");
-  }
-  return path.join(HOME, "Documents");
 }
 
 /**
@@ -64,29 +34,29 @@ function documentsDir(): string {
 export function detectClient(id: ClientId): boolean {
   switch (id) {
     case "claude-code":
-      return exists(path.join(HOME, ".claude"));
+      return exists(path.join(getHome(), ".claude"));
     case "claude-desktop":
       return exists(claudeDesktopDir());
     case "cursor":
-      return exists(path.join(HOME, ".cursor"));
+      return exists(path.join(getHome(), ".cursor"));
     case "antigravity":
-      return exists(path.join(HOME, ".antigravity"));
+      return exists(path.join(getHome(), ".antigravity"));
     case "vs-code":
       return exists(path.join(process.cwd(), ".vscode"));
     case "zed":
-      return exists(path.join(xdgConfigDir(), "zed"));
+      return exists(path.join(userConfigDir(), "zed"));
     case "windsurf":
-      return exists(path.join(HOME, ".codeium", "windsurf"));
+      return exists(path.join(getHome(), ".codeium", "windsurf"));
     case "continue":
-      return exists(path.join(HOME, ".continue"));
+      return exists(path.join(getHome(), ".continue"));
     case "cline":
       return (
-        exists(path.join(documentsDir(), "Cline", "MCP")) || exists(path.join(HOME, ".vscode"))
+        exists(path.join(documentsDir(), "Cline", "MCP")) || exists(path.join(getHome(), ".vscode"))
       );
     case "goose":
-      return exists(path.join(xdgConfigDir(), "goose"));
+      return exists(path.join(userConfigDir(), "goose"));
     case "codex-cli":
-      return exists(path.join(HOME, ".codex"));
+      return exists(path.join(getHome(), ".codex"));
   }
 }
 

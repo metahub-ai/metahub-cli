@@ -1,8 +1,8 @@
 {
   "name": "metahub-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "MetaHub client toolchain — the `mh` CLI, the MetaHub MCP server, and the auth + installer libraries they share.",
+  "description": "MetaHub client toolchain \u2014 the `mh` CLI, the MetaHub MCP server, and the auth + installer libraries they share.",
   "license": "MIT",
   "repository": {
     "type": "git",

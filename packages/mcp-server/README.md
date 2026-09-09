@@ -15,15 +15,16 @@ packages/mcp-server/
 │   ├── cli.ts                argv parsing (--version, --help) and process bootstrap
 │   ├── index.ts              exports run(); boots stdio when called from bin
 │   ├── server.ts             registers tools + the catalog resource on an McpServer
-│   ├── registry-client.ts    HTTP fetch + shape-check for the baked registry.json
-│   ├── env.ts                METAHUB_REGISTRY_URL / METAHUB_PORTAL_URL defaults
+│   ├── registry-client.ts    HTTP fetch + shape-check for an optional baked registry.json
+│   ├── env.ts                METAHUB_REGISTRY_URL (optional baked-catalog override)
 │   ├── types.ts              local RegistryItem / Registry shapes
 │   ├── lib/
 │   │   ├── host.ts           host identifier + sign-in hint shared across tools
 │   │   └── portal-client.ts  authenticated fetch helper for portal endpoints
 │   └── tools/
 │       ├── search.ts             metahub_search
-│       ├── get.ts                metahub_get
+│       ├── get.ts                metahub_get (portal-first, baked catalog as fallback)
+│       ├── catalog.ts            metahub://catalog resource (slim, single page)
 │       ├── install.ts            metahub_install, calls @metahub/installer
 │       ├── uninstall.ts          metahub_uninstall, calls @metahub/installer
 │       ├── list-installed.ts     metahub_list_installed, calls @metahub/installer
@@ -63,7 +64,7 @@ To exercise the tools, point a real MCP client (or `npx @modelcontextprotocol/in
 | Tool                      | Mode  | Purpose                                                                                                                                                                                                     |
 | ------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `metahub_search`          | both  | Search the catalog. Args: `query: string`, `kind?: "skill" \| "mcp" \| "agent" \| "plugin"`, `limit?: number` (default 10).                                                                                 |
-| `metahub_get`             | both  | Fetch one artifact's full record. Args: `kind`, `slug`. Returns the registry item or an error.                                                                                                              |
+| `metahub_get`             | both  | Fetch one artifact's full record from the portal. Args: `kind`, `slug`. Returns the `PublicArtifact` (readme, kindFacts, badges) + review summary, or a not-found error.                                    |
 | `metahub_install_command` | both  | Return the exact `mh install <kind>/<slug>` command plus a tip. For users who prefer the CLI.                                                                                                               |
 | `metahub_install`         | stdio | Install an artifact directly (no CLI required). Args: `kind`, `slug`. Calls `installArtifact()` from `@metahub/installer`: fetches the tarball, wires MCP across detected clients, records the install.     |
 | `metahub_uninstall`       | stdio | Remove a previously installed artifact. Args: `kind`, `slug`. Calls `uninstallArtifact()`.                                                                                                                  |
@@ -78,7 +79,7 @@ To exercise the tools, point a real MCP client (or `npx @modelcontextprotocol/in
 
 Plus one resource:
 
-- `metahub://catalog` (both modes): the full catalog JSON, for offline browsing.
+- `metahub://catalog` (both modes): a slim, single-page browse view of the catalog (readme/behavioural fields projected out — they are ~91% of the raw payload). Sets `truncated: true` when the catalog is larger than one page; use `metahub_search` for anything not listed and `metahub_get` for a full record.
 
 `stdio` tools are only registered when the server runs over stdio (`npx -y @metahub/mcp-server` inside an AI client, one process per user). They depend on the local filesystem (`~/.metahub/`) to read the install ledger and the session token; a remote/hosted transport has no such state.
 
@@ -105,11 +106,11 @@ Auth-required tools are **stdio-only**. A remote/hosted transport (the planned `
 
 ## Environment variables
 
-| Variable               | Default                                     | Purpose                                                                                                            |
-| ---------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `METAHUB_REGISTRY_URL` | `https://registry.metahub.ai/registry.json` | Where to fetch the baked catalog JSON.                                                                             |
-| `METAHUB_PORTAL_URL`   | `https://developer.metahub.ai`              | Where to send authenticated publisher + auth requests. Self-host knob.                                             |
-| `METAHUB_E2E_HOME`     | `os.homedir()`                              | Override the home dir used by `@metahub/auth` and `@metahub/installer` for the persisted token and install ledger. |
+| Variable               | Default                        | Purpose                                                                                                                                      |
+| ---------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `METAHUB_REGISTRY_URL` | _(unset)_                      | Optional baked-catalog snapshot, used only as a degraded fallback when the portal is unreachable. Catalog reads go to the portal by default. |
+| `METAHUB_PORTAL_URL`   | `https://developer.metahub.ai` | Where to send authenticated publisher + auth requests. Self-host knob.                                                                       |
+| `METAHUB_E2E_HOME`     | `os.homedir()`                 | Override the home dir used by `@metahub/auth` and `@metahub/installer` for the persisted token and install ledger.                           |
 
 ## User-facing integration guide
 

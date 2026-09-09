@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAuthConfig, saveAuthConfig } from "../src/config";
+import {
+  DEFAULT_REGISTRY_URL,
+  explicitRegistryUrl,
+  loadAuthConfig,
+  saveAuthConfig,
+} from "../src/config";
 
 let tmpHome: string;
 let origHome: string | undefined;
@@ -92,5 +97,42 @@ describe("saveAuthConfig", () => {
     const cfg = loadAuthConfig();
     expect(cfg.sessionToken).toBe("tok_1");
     expect(cfg.telemetry).toBe("off");
+  });
+});
+
+describe("explicitRegistryUrl", () => {
+  // `loadAuthConfig().registryUrl` is never empty — it always falls back to
+  // DEFAULT_REGISTRY_URL. Callers that forward it downstream therefore cannot
+  // tell a real override from the default, and `mh bootstrap` shipped exactly
+  // that bug: it baked the registry *website* root into every wired client's
+  // MCP env as though it were a catalog endpoint.
+  it("returns undefined when the user chose nothing", () => {
+    expect(explicitRegistryUrl()).toBeUndefined();
+  });
+
+  it("returns undefined when the persisted value is merely the default", () => {
+    saveAuthConfig({ registryUrl: DEFAULT_REGISTRY_URL });
+    expect(explicitRegistryUrl()).toBeUndefined();
+  });
+
+  it("returns undefined for an empty persisted value", () => {
+    saveAuthConfig({ registryUrl: "" });
+    expect(explicitRegistryUrl()).toBeUndefined();
+  });
+
+  it("returns a genuinely chosen persisted override", () => {
+    saveAuthConfig({ registryUrl: "https://snapshot.example/registry.json" });
+    expect(explicitRegistryUrl()).toBe("https://snapshot.example/registry.json");
+  });
+
+  it("prefers a fresh env override over the persisted value", () => {
+    saveAuthConfig({ registryUrl: "https://persisted.example/registry.json" });
+    process.env.METAHUB_REGISTRY_URL = "https://env.example/registry.json";
+    expect(explicitRegistryUrl()).toBe("https://env.example/registry.json");
+  });
+
+  it("ignores an env override that is just the default", () => {
+    process.env.METAHUB_REGISTRY_URL = DEFAULT_REGISTRY_URL;
+    expect(explicitRegistryUrl()).toBeUndefined();
   });
 });
