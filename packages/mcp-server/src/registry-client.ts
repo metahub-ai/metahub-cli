@@ -20,6 +20,47 @@ export interface FetchOptions {
   fetcher?: typeof fetch;
 }
 
+/**
+ * Thrown when a baked-catalog read is attempted with no
+ * `METAHUB_REGISTRY_URL` configured. Callers treat this as "the
+ * optional fallback source is absent" rather than as a fetch failure,
+ * so they can surface the *portal's* error instead of a confusing
+ * message about a registry the user never configured.
+ */
+export class NoRegistryConfiguredError extends Error {
+  constructor() {
+    super(
+      "No baked catalog configured (METAHUB_REGISTRY_URL is unset). " +
+        "The portal's public catalog API is the default source.",
+    );
+    this.name = "NoRegistryConfiguredError";
+  }
+}
+
+/** True when a baked catalog is available as a fallback source. */
+export function hasRegistryConfigured(opts: FetchOptions = {}): boolean {
+  return (opts.url ?? registryUrl()) !== null;
+}
+
+/**
+ * Should a catalog tool fall back to the baked snapshot after a portal
+ * failure?
+ *
+ * An explicitly injected `registryLoader` counts as a configured
+ * fallback on its own — a caller that hands us a loader means for it to
+ * be used, and silently ignoring it would be a trap. `registryConfigured`
+ * overrides both, which is how `buildServer` keeps the env-driven gate
+ * authoritative even though it always passes a loader.
+ */
+export function fallbackAvailable(opts: {
+  registryLoader?: unknown;
+  registryConfigured?: () => boolean;
+}): boolean {
+  if (opts.registryConfigured) return opts.registryConfigured();
+  if (opts.registryLoader) return true;
+  return hasRegistryConfigured();
+}
+
 const FETCH_TIMEOUT_MS = 5000;
 
 /** In-memory TTL for the catalog. Short enough that publishers see new
@@ -34,6 +75,7 @@ export async function fetchRegistry(opts: FetchOptions = {}): Promise<Registry> 
     return cached.value;
   }
   const url = opts.url ?? registryUrl();
+  if (url === null) throw new NoRegistryConfiguredError();
   const fetcher = opts.fetcher ?? fetch;
   let res: Response;
   try {

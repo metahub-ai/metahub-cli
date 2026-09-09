@@ -155,7 +155,7 @@ export async function startHttp(opts: RunHttpOptions = {}): Promise<RunningHttpS
     typeof address === "object" && address && "port" in address ? address.port : desiredPort;
 
   process.stderr.write(
-    `[metahub-mcp] ${cfg.name} v${cfg.version} ready over http on ${desiredHost}:${port} (registry: ${cfg.registryUrl})\n`,
+    `[metahub-mcp] ${cfg.name} v${cfg.version} ready over http on ${desiredHost}:${port} (catalog: ${cfg.catalogSource})\n`,
   );
 
   return {

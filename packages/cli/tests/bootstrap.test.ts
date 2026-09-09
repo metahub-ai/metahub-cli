@@ -28,9 +28,10 @@ let originalHome: string | undefined;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-bootstrap-"));
   process.env.METAHUB_E2E_HOME = tmp;
-  // clients.ts uses os.homedir() directly (not the E2E_HOME hook),
-  // so we also redirect HOME for the duration of this test. On POSIX
-  // platforms os.homedir() reads from process.env.HOME.
+  // clients.ts now resolves through the installer's shared getHome(), so
+  // METAHUB_E2E_HOME alone is enough. HOME is still redirected as a
+  // belt-and-braces guard against anything that reaches os.homedir()
+  // directly, so a regression cannot write into the real user config.
   originalHome = process.env.HOME;
   process.env.HOME = tmp;
 });
@@ -119,7 +120,13 @@ describe("bootstrapMetahubMcp (with one detected client)", () => {
     expect(wrote.length).toBeGreaterThan(0);
   });
 
-  it("wires METAHUB_REGISTRY_URL into the client config", () => {
+  it("does NOT bake METAHUB_REGISTRY_URL in when the user chose no override", () => {
+    // It used to emit `cfg.registryUrl || <portal>`, but loadAuthConfig()
+    // always fills registryUrl in, so every wired client got
+    // `https://registry.metahub.ai` — the registry *website* root, which
+    // serves HTML. The MCP server reads the portal by default and treats
+    // this var as an opt-in snapshot override, so emitting the default
+    // pointed the degraded fallback at a page of HTML.
     const claudeDir = path.join(tmp, ".claude");
     fs.mkdirSync(claudeDir, { recursive: true });
     bootstrapMetahubMcp();
@@ -128,11 +135,26 @@ describe("bootstrapMetahubMcp (with one detected client)", () => {
     };
     const env = cfg.mcpServers?.metahub?.env;
     expect(env).toBeDefined();
-    expect(env!.METAHUB_REGISTRY_URL).toBeDefined();
-    expect(env!.METAHUB_REGISTRY_URL.length).toBeGreaterThan(0);
-    // Default falls back to the portal endpoint when no auth-config
-    // override is present (the tmp HOME has no config.json).
-    expect(env!.METAHUB_REGISTRY_URL).toContain("metahub.ai");
+    expect(env!.METAHUB_PORTAL_URL).toBeTruthy();
+    expect(env).not.toHaveProperty("METAHUB_REGISTRY_URL");
+  });
+
+  it("forwards METAHUB_REGISTRY_URL when the user really did set one", () => {
+    // Reads the user-scoped ~/.claude.json, matching the sibling tests and
+    // this repo's Claude Code adapter.
+    fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
+    process.env.METAHUB_REGISTRY_URL = "https://snapshot.example/registry.json";
+    try {
+      bootstrapMetahubMcp();
+    } finally {
+      delete process.env.METAHUB_REGISTRY_URL;
+    }
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmp, ".claude.json"), "utf8")) as {
+      mcpServers?: Record<string, { env?: Record<string, string> }>;
+    };
+    expect(cfg.mcpServers?.metahub?.env?.METAHUB_REGISTRY_URL).toBe(
+      "https://snapshot.example/registry.json",
+    );
   });
 });
 

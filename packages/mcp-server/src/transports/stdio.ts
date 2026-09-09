@@ -15,7 +15,7 @@ export async function runStdio(): Promise<void> {
   const transport = new StdioServerTransport();
   const cfg = serverConfig();
   process.stderr.write(
-    `[metahub-mcp] ${cfg.name} v${cfg.version} ready over stdio (registry: ${cfg.registryUrl})\n`,
+    `[metahub-mcp] ${cfg.name} v${cfg.version} ready over stdio (catalog: ${cfg.catalogSource})\n`,
   );
   await server.connect(transport);
 }

@@ -93,12 +93,29 @@ export async function installArtifactTool(
 ): Promise<InstallArtifactResult> {
   const installerFn = opts.installer ?? installArtifact;
   const events: InstallProgressEvent[] = [];
-  const result = await installerFn({
-    kind: input.kind,
-    slug: input.slug,
-    host: MCP_SERVER_HOST,
-    hostVersion: MCP_SERVER_VERSION,
-    onProgress: (e) => events.push(e),
-  });
+  let result: InstallResult;
+  try {
+    result = await installerFn({
+      kind: input.kind,
+      slug: input.slug,
+      host: MCP_SERVER_HOST,
+      hostVersion: MCP_SERVER_VERSION,
+      onProgress: (e) => events.push(e),
+    });
+  } catch (err) {
+    // The portal answers an unknown artifact with a bare `{"error":"not found"}`,
+    // which reaches the AI as "metahub_install failed: not found" — no mention of
+    // what was not found. Name the artifact so the AI can correct the slug or
+    // re-run `metahub_search` instead of guessing.
+    const message = err instanceof Error ? err.message : String(err);
+    if (/^\s*not found\s*$/i.test(message)) {
+      throw new Error(
+        `No artifact found for kind=${input.kind} slug=${input.slug}. ` +
+          `Use metahub_search to find the correct slug.`,
+        { cause: err },
+      );
+    }
+    throw err;
+  }
   return { result, summary: summarize(input.kind, input.slug, result, events) };
 }

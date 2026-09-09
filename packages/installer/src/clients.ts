@@ -17,7 +17,8 @@
  * the user can apply manually (no extra deps for those parsers).
  *
  * ─── Platform support ──────────────────────────────────────────────
- * Paths use `os.homedir()` + `path.join()` so they resolve correctly
+ * Paths use the installer's shared `getHome()` (which honours
+ * `METAHUB_E2E_HOME`) + `path.join()` so they resolve correctly
  * on macOS, Linux, and Windows. Where a client's actual config dir
  * genuinely differs by OS (Claude Desktop, Cline's Documents path
  * on Windows with OneDrive redirect, Goose on Windows), we branch
@@ -30,9 +31,15 @@
  * the catalog promises.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import {
+  claudeDesktopDir,
+  documentsDir,
+  getHome,
+  userConfigDir,
+  writePrivateFile,
+} from "./paths.js";
 
 export interface LaunchSpec {
   command: string;
@@ -80,7 +87,7 @@ export interface ClientAdapter {
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function home(): string {
-  return os.homedir();
+  return getHome();
 }
 
 function exists(p: string): boolean {
@@ -92,35 +99,6 @@ function exists(p: string): boolean {
   }
 }
 
-/**
- * Best-effort "Documents" location. On Windows it may be redirected
- * to OneDrive; if both candidates exist we prefer OneDrive (newer
- * default in Win 11). On macOS / Linux it's always `~/Documents`.
- */
-function documentsDir(): string {
-  if (process.platform === "win32") {
-    const onedrive = process.env.OneDrive ?? process.env.OneDriveConsumer;
-    if (onedrive && exists(path.join(onedrive, "Documents"))) {
-      return path.join(onedrive, "Documents");
-    }
-    return path.join(home(), "Documents");
-  }
-  return path.join(home(), "Documents");
-}
-
-/**
- * Cross-platform "user config" root. On *nix this is `$XDG_CONFIG_HOME`
- * (or `~/.config` when unset). On Windows it's `%APPDATA%` (or a
- * sensible default). Used by Goose, Zed, etc.
- */
-function userConfigDir(): string {
-  if (process.platform === "win32") {
-    return process.env.APPDATA ?? path.join(home(), "AppData", "Roaming");
-  }
-  const xdg = process.env.XDG_CONFIG_HOME;
-  return xdg && xdg.length > 0 ? xdg : path.join(home(), ".config");
-}
-
 function readJson<T>(file: string, fallback: T): T {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8")) as T;
@@ -129,9 +107,30 @@ function readJson<T>(file: string, fallback: T): T {
   }
 }
 
-function writeJson(file: string, data: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+/**
+ * Write a client's MCP config.
+ *
+ * Uses `writePrivateFile` (0600, re-chmod'd on every write) rather than
+ * a bare `writeFileSync`, because the entry we merge in carries the
+ * per-install `METAHUB_INGEST_API_KEY` — an `mhi_` write credential —
+ * in its launch env. These files were previously left at the umask
+ * default (0644 on a typical Linux box), so every MCP-kind install put
+ * a live credential in a world-readable file while `~/.metahub/config.json`
+ * and `installs.json` were carefully locked down for exactly this reason.
+ *
+ * These are user-level dotfiles owned by the same user that runs the
+ * client, so tightening the mode does not change who can read them in
+ * practice — it only removes the other/group bits. `unwire` writes
+ * through here too: a config that no longer holds a secret keeps the
+ * tighter mode, which is the safe direction.
+ */
+function writeJson(file: string, data: unknown, opts: { private?: boolean } = {}): void {
+  if (opts.private === false) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+    return;
+  }
+  writePrivateFile(file, JSON.stringify(data, null, 2));
 }
 
 function jsonAdapter(opts: {
@@ -140,8 +139,20 @@ function jsonAdapter(opts: {
   configPath: () => string;
   /** Some clients use a key other than "mcpServers". */
   schemaKey?: "mcpServers" | "servers" | "context_servers";
+  /**
+   * Whether this client's config is a private per-user dotfile.
+   *
+   * Defaults to true, which is what gets it 0600 — the entry we merge in
+   * carries the `mhi_` ingest credential. Set false for a config that is
+   * NOT per-user: VS Code's lives in the *workspace* (`.vscode/mcp.json`),
+   * where 0600 can lock the editor server out entirely if it runs under a
+   * different uid than the one that ran the install — a devcontainer or CI
+   * image, say — and the file may legitimately be shared or committed.
+   */
+  privateConfig?: boolean;
 }): ClientAdapter {
   const key = opts.schemaKey ?? "mcpServers";
+  const isPrivate = opts.privateConfig ?? true;
   return {
     name: opts.name,
     detect: opts.detect,
@@ -153,7 +164,7 @@ function jsonAdapter(opts: {
         const existing = (config[key] as Record<string, unknown>) ?? {};
         existing[slug] = { command: launch.command, args: launch.args, env };
         config[key] = existing;
-        writeJson(file, config);
+        writeJson(file, config, { private: isPrivate });
         return { client: opts.name, status: "wrote", configPath: file };
       } catch (err) {
         return {
@@ -172,7 +183,7 @@ function jsonAdapter(opts: {
       if (slug in existing) {
         delete existing[slug];
         config[key] = existing;
-        writeJson(file, config);
+        writeJson(file, config, { private: isPrivate });
       }
     },
   };
@@ -281,6 +292,8 @@ export const CLIENT_ADAPTERS: ClientAdapter[] = [
     name: "VS Code",
     detect: () => exists(path.join(process.cwd(), ".vscode")),
     configPath: () => path.join(process.cwd(), ".vscode", "mcp.json"),
+    // Workspace file, not a per-user dotfile — see `privateConfig`.
+    privateConfig: false,
     schemaKey: "servers",
   }),
 
@@ -358,18 +371,6 @@ command = "${launch.command}"
 args = [${launch.args.map((a) => `"${a}"`).join(", ")}]`,
   }),
 ];
-
-function claudeDesktopDir(): string {
-  if (process.platform === "darwin") {
-    return path.join(home(), "Library", "Application Support", "Claude");
-  }
-  if (process.platform === "win32") {
-    const appdata = process.env.APPDATA ?? path.join(home(), "AppData", "Roaming");
-    return path.join(appdata, "Claude");
-  }
-  // Linux is unofficial — best guess.
-  return path.join(home(), ".config", "Claude");
-}
 
 /**
  * Wire the MCP into every detected client. Returns per-client results

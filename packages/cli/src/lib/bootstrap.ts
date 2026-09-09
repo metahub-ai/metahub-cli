@@ -30,12 +30,13 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadAuthConfig } from "@metahub/auth";
+import { explicitRegistryUrl, loadAuthConfig } from "@metahub/auth";
 import {
   CLIENT_ADAPTERS,
   unwireMcpAcrossClients,
   wireMcpAcrossClients,
   type ClientWriteResult,
+  type McpEnv,
 } from "@metahub/installer";
 
 const SLUG = "metahub";
@@ -197,19 +198,22 @@ export function bootstrapMetahubMcp(opts: { force?: boolean } = {}): BootstrapRe
   // itself never reads them (it uses the user's session token from
   // ~/.metahub/config.json to talk to the portal).
   //
-  // METAHUB_REGISTRY_URL is forwarded explicitly. The portal endpoint
-  // is the live public catalog; registry.metahub.ai/registry.json
-  // returns 404 today so the MCP server needs to be pointed at the
-  // portal URL until the static registry is rebuilt. We honor the
-  // user's auth-config override when set so self-hosters don't get
-  // overridden by the default.
-  const env = {
+  // METAHUB_REGISTRY_URL is forwarded ONLY when the user actually chose
+  // one. It used to be `cfg.registryUrl || <portal fallback>`, but
+  // `loadAuthConfig()` always fills `registryUrl` in, so the `||` branch
+  // was dead and every wired client got `https://registry.metahub.ai`
+  // baked in — a website root that serves HTML, not a catalog. The MCP
+  // server now reads the portal's public catalog API by default and
+  // treats this var as an opt-in self-host override, so emitting the
+  // default actively breaks it. Omit it unless it is a real override.
+  const env: McpEnv = {
     METAHUB_INGEST_API_KEY: "",
     METAHUB_INSTALL_ID: "",
     METAHUB_ARTIFACT_ID: "",
     METAHUB_PORTAL_URL: cfg.portalUrl,
-    METAHUB_REGISTRY_URL: cfg.registryUrl || "https://developer.metahub.ai/api/public/artifacts",
   };
+  const chosenRegistry = explicitRegistryUrl();
+  if (chosenRegistry) env.METAHUB_REGISTRY_URL = chosenRegistry;
   const launch = { command: "node", args: [bin] };
 
   // The `wireMcpAcrossClients` helper writes to EVERY detected

@@ -1,7 +1,7 @@
 {
   "name": "@metahub/installer",
-  "version": "0.1.0",
-  "description": "Install machinery for MetaHub artifacts — fetch, extract, wire into AI clients, record locally.",
+  "version": "0.2.0",
+  "description": "Install machinery for MetaHub artifacts \u2014 fetch, extract, wire into AI clients, record locally.",
   "license": "MIT",
   "homepage": "https://registry.metahub.ai",
   "repository": {

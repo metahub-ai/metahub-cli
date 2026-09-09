@@ -21,7 +21,13 @@ export {
   type AuthToken,
 } from "./token.js";
 
-export { loadAuthConfig, saveAuthConfig, type AuthConfig } from "./config.js";
+export {
+  loadAuthConfig,
+  explicitRegistryUrl,
+  DEFAULT_REGISTRY_URL,
+  saveAuthConfig,
+  type AuthConfig,
+} from "./config.js";
 
 export {
   currentUser,
