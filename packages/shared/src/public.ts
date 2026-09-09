@@ -310,14 +310,6 @@ export interface BehavioralSummary {
   safe: boolean;
   /** Aggregate 0–10 score across the judged dimensions. */
   overallScore: number;
-  /**
-   * Spread on `overallScore`. The driver is a stochastic model, so the
-   * score is an estimate: `halfWidth` is the 95% half-interval on the
-   * 0–100 scale (render `overallScore ± halfWidth/10`), and `precise` is
-   * false when too few samples support a point estimate. Present on done
-   * runs; absent on older cached payloads.
-   */
-  scoreConfidence?: { halfWidth: number; sampleSize: number; precise: boolean };
   /** How many behavioral test cases were run. */
   testCount: number;
   /** Mean of each dimension across tests (0–10, one decimal). Done runs only. */

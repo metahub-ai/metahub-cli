@@ -342,20 +342,65 @@ export function categoryName(slug: string | null | undefined): string {
  * repo owner (the registry's author handle).
  */
 export const OFFICIAL_OWNERS = [
+  // Model / platform vendors.
   "anthropics",
   "openai",
   "google",
   "google-gemini",
+  "google-labs-code",
   "googleapis",
+  "googleworkspace",
   "microsoft",
   "github",
   "modelcontextprotocol",
   "awslabs",
   "aws",
   "cloudflare",
+  "minimax-ai",
+  "huggingface",
+  // Product vendors publishing skills for their own tool. These are the
+  // orgs officialskills.sh curates as vendor-official, and the reason the
+  // list is worth keeping wide: an artifact published by the vendor of the
+  // thing it automates carries authority no community fork does, and the
+  // description gate treats them accordingly (see descriptionQualityCheck).
   "stripe",
   "supabase",
   "vercel",
+  "vercel-labs",
+  "figma",
+  "firebase",
+  "netlify",
+  "expo",
+  "flutter",
+  "mongodb",
+  "neondatabase",
+  "clickhouse",
+  "duckdb",
+  "tinybirdco",
+  "getsentry",
+  "datadog-labs",
+  "hashicorp",
+  "auth0",
+  "better-auth",
+  "apollographql",
+  "sanity-io",
+  "wordpress",
+  "makenotion",
+  "greensock",
+  "remotion-dev",
+  "replicate",
+  "firecrawl",
+  "browserbase",
+  "brave",
+  "binance",
+  "coinbase",
+  "trailofbits",
+  "typefully",
+  "coderabbitai",
+  "composiohq",
+  "callstackincubator",
+  "fal-ai-community",
+  "voltagent",
 ] as const;
 
 const OFFICIAL_SET = new Set<string>(OFFICIAL_OWNERS);

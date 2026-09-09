@@ -196,6 +196,18 @@ export interface PublicArtifactCountsResponse {
    * consumers must treat it as optional.
    */
   categoryCounts?: Record<string, number>;
+  /**
+   * Public artifacts whose owner is on the OFFICIAL_OWNERS allowlist — the
+   * number behind the registry's /official shelf.
+   *
+   * Exposed because it could not be derived downstream. Official-ness is an
+   * owner allowlist resolved per artifact, so a consumer holding only these
+   * aggregates had no way to compute it, and metahub.ai carried the figure as
+   * hardcoded markup that silently went stale every time the allowlist or the
+   * catalog moved. Additive and optional, same as categoryCounts: an older
+   * portal simply omits it and the caller keeps its own fallback.
+   */
+  official?: number;
 }
 
 /**
