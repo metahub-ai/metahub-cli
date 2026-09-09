@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ClientId } from "./capabilities.js";
-import { claudeDesktopDir, documentsDir, getHome, userConfigDir } from "./paths.js";
+import { claudeDesktopDir, documentsDir, geminiDir, getHome, userConfigDir } from "./paths.js";
 
 function exists(p: string): boolean {
   try {
@@ -40,7 +40,14 @@ export function detectClient(id: ClientId): boolean {
     case "cursor":
       return exists(path.join(getHome(), ".cursor"));
     case "antigravity":
-      return exists(path.join(getHome(), ".antigravity"));
+      // Antigravity keeps its state under ~/.gemini/antigravity; the
+      // editor build also has a VS Code-style ~/.antigravity.
+      return (
+        exists(path.join(geminiDir(), "antigravity")) ||
+        exists(path.join(getHome(), ".antigravity"))
+      );
+    case "gemini-cli":
+      return exists(geminiDir());
     case "vs-code":
       return exists(path.join(process.cwd(), ".vscode"));
     case "zed":
@@ -57,23 +64,34 @@ export function detectClient(id: ClientId): boolean {
       return exists(path.join(userConfigDir(), "goose"));
     case "codex-cli":
       return exists(path.join(getHome(), ".codex"));
+    case "opencode":
+      return exists(path.join(userConfigDir(), "opencode"));
+    case "agents-dir":
+      // Not a client: the shared Agent Skills directory is always a
+      // valid target because the harnesses that read it look there
+      // whether or not it exists yet.
+      return true;
   }
 }
 
+/** Every real client id, in catalog order. Excludes the `agents-dir` pseudo-client. */
+export const CLIENT_IDS: readonly ClientId[] = [
+  "claude-code",
+  "claude-desktop",
+  "cursor",
+  "antigravity",
+  "vs-code",
+  "zed",
+  "windsurf",
+  "continue",
+  "cline",
+  "goose",
+  "codex-cli",
+  "gemini-cli",
+  "opencode",
+];
+
 /** All detected clients. Used by `mh refresh` / `mh doctor`. */
 export function detectedClients(): ClientId[] {
-  const ids: ClientId[] = [
-    "claude-code",
-    "claude-desktop",
-    "cursor",
-    "antigravity",
-    "vs-code",
-    "zed",
-    "windsurf",
-    "continue",
-    "cline",
-    "goose",
-    "codex-cli",
-  ];
-  return ids.filter(detectClient);
+  return CLIENT_IDS.filter(detectClient);
 }

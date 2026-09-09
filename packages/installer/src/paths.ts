@@ -3,7 +3,8 @@
  *
  * The auth package owns the shared `~/.metahub/` root; this module only
  * adds the per-kind install path resolution and a couple of derived
- * paths (the installs ledger, the Claude Code user config file).
+ * paths (the installs ledger, the Claude Code user config file, the
+ * cross-harness Agent Skills directory).
  */
 import path from "node:path";
 import os from "node:os";
@@ -56,7 +57,7 @@ function exists(p: string): boolean {
 /**
  * Cross-platform "user config" root. `$XDG_CONFIG_HOME` (or
  * `~/.config`) on *nix, `%APPDATA%` on Windows. Used by Goose, Zed,
- * Cline, etc. Shared by `clients.ts`, `detection.ts` and
+ * Cline, opencode. Shared by `clients.ts`, `detection.ts` and
  * `capabilities.ts` so the three cannot drift apart again.
  */
 export function userConfigDir(): string {
@@ -99,13 +100,80 @@ export function documentsDir(): string {
   return path.join(home, "Documents");
 }
 
+/**
+ * The cross-harness Agent Skills directory (agentskills.io).
+ *
+ * Codex CLI reads `$HOME/.agents/skills`; Gemini CLI, Cursor, opencode
+ * and Goose all read it alongside their own directories. Claude Code
+ * does not, which is why `~/.claude/skills/<slug>` stays the canonical
+ * install and this directory gets a link (or, on Windows, a copy).
+ */
+export function agentsSkillsDir(): string {
+  return path.join(getHome(), ".agents", "skills");
+}
+
+/** Gemini CLI and Antigravity share `~/.gemini`. */
+export function geminiDir(): string {
+  return path.join(getHome(), ".gemini");
+}
+
+/** Gemini CLI's user-scope settings file (holds `mcpServers`). */
+export function geminiSettingsFile(): string {
+  return path.join(geminiDir(), "settings.json");
+}
+
+/**
+ * Antigravity's global config directory. Current builds keep MCP config
+ * and global skills under `~/.gemini/config/`; older builds wrote
+ * `~/.gemini/antigravity/mcp_config.json`.
+ */
+export function antigravityConfigDir(): string {
+  return path.join(geminiDir(), "config");
+}
+
+export function antigravitySkillsDir(): string {
+  return path.join(antigravityConfigDir(), "skills");
+}
+
+/**
+ * Antigravity's MCP config file. Prefers the current location; falls
+ * back to the legacy file only when the current config directory does
+ * not exist yet but the legacy file does, so an installation that has
+ * not migrated still gets a working entry.
+ */
+export function antigravityMcpConfigPath(): string {
+  const current = path.join(antigravityConfigDir(), "mcp_config.json");
+  if (exists(current)) return current;
+  const legacy = path.join(geminiDir(), "antigravity", "mcp_config.json");
+  if (!exists(antigravityConfigDir()) && exists(legacy)) return legacy;
+  return current;
+}
+
+/**
+ * opencode's global config: `~/.config/opencode/opencode.json`, or the
+ * `.jsonc` variant when the user already has one, so a single config
+ * is never split across two files.
+ */
+export function openCodeConfigPath(): string {
+  const dir = path.join(userConfigDir(), "opencode");
+  const jsonc = path.join(dir, "opencode.jsonc");
+  try {
+    if (fs.statSync(jsonc).isFile()) return jsonc;
+  } catch {
+    /* no .jsonc — use .json */
+  }
+  return path.join(dir, "opencode.json");
+}
+
 export function installsFile(): string {
   return path.join(configRoot(), "installs.json");
 }
 
 /**
- * The on-disk install path for each kind. Iteration 1 targets Claude
- * Code. Other hosts come later.
+ * The on-disk install path for each kind. Skills and plugins live in
+ * Claude Code's directories because Claude Code is the one harness that
+ * reads nowhere else; every other harness is reached by a link from
+ * `~/.agents/skills` (see `hooks.ts`).
  */
 export function installPathFor(kind: ArtifactKind, slug: string): string {
   const home = getHome();
