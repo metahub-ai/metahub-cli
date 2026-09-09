@@ -28,8 +28,26 @@ mh bootstrap
 mh --version
 ```
 
-`mh bootstrap` connects the bundled MetaHub MCP server to supported AI clients
-after an npm installation.
+`mh bootstrap` connects the bundled MetaHub MCP server to every AI harness it
+finds (Claude Code, Claude Desktop, Cursor, Antigravity, Gemini CLI, VS Code,
+Zed, Windsurf, opencode, and Codex CLI through `codex mcp add`; Continue, Cline
+and Goose get a paste snippet) and appends a short "look on MetaHub first" block
+to each harness's global instruction file (`~/.claude/CLAUDE.md`,
+`~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.cursor/rules/metahub.mdc`,
+opencode's `AGENTS.md`, Goose's `.goosehints`, Windsurf's `global_rules.md`).
+Both steps are idempotent; `mh bootstrap --status` shows the result,
+`mh bootstrap --uninstall` reverses it, and `--no-instructions` (or
+`METAHUB_NO_INSTRUCTIONS=1`) leaves the instruction files alone.
+
+### npx
+
+```bash
+npx @metahub-ai/mh bootstrap
+```
+
+Runs the same bootstrap without a global install. Clients are wired to
+`npx -y --package=@metahub-ai/mh metahub-mcp`, so they keep working after npm
+clears its npx cache; install globally for an instant server start.
 
 ### Shell installer
 
@@ -51,14 +69,22 @@ You can substitute `pnpm add -g @metahub-ai/mh` or
 
 ```bash
 mh search pdf
-mh install skills/pdf
+mh install skills/keynote-deck
 mh list
-mh update skills/pdf
-mh uninstall skills/pdf
+mh update skills/keynote-deck
+mh uninstall skills/keynote-deck
 mh login
 mh outdated
-mh doctor
+mh doctor skills/keynote-deck
+mh refresh          # link installed skills into a harness you added later
 ```
+
+Skills install to `~/.claude/skills/<slug>/` and are linked into
+`~/.agents/skills/<slug>/` (the Agent Skills directory that Codex CLI, Gemini
+CLI, Cursor, opencode and Goose read) and, when Antigravity is present,
+`~/.gemini/config/skills/<slug>/`. Continue and Zed get a converted rule file.
+MCP-kind artifacts are `npm install`ed and built after download, then wired
+into every detected harness.
 
 See [`docs/INSTALL.md`](../../docs/INSTALL.md) for the full end-user guide and [`docs/MCP_SERVER.md`](../../docs/MCP_SERVER.md) for the AI-client alternative.
 
@@ -67,25 +93,25 @@ See [`docs/INSTALL.md`](../../docs/INSTALL.md) for the full end-user guide and [
 The CLI uses a consistent visual language across commands. Headers are accent-colored brackets (`[install]`, `[search]`, `[doctor]`). Progress steps render with a green `✓` for success / yellow `⚠` for warning / red `✗` for failure / dim `▸` for in-progress. Paths are tildeified (`~/.claude/skills/foo`, not `/Users/<you>/.claude/...`). Versions and SHAs render in cyan. Durations show in milliseconds-aware form (`234ms`, `1.4s`, `2m 5s`).
 
 ```text
-$ mh install skills/pdf
-[install]  skill/pdf
+$ mh install skills/keynote-deck
+[install]  skill/keynote-deck
 
   ▸ resolve    checking catalog…
-  ⚠ replace    existing install at ~/.claude/skills/pdf
-  ✓ download   2964d6a  (subdir skills/pdf)  333ms
+  ⚠ replace    existing install at ~/.claude/skills/keynote-deck
+  ✓ download   2964d6a  (subdir skills/keynote-deck)  333ms
   ✓ wire       telemetry sidecar  1.1s
 
   pdf  v0.1.0  in 1.4s
     Pinned     2964d6a
-    Location   ~/.claude/skills/pdf
-    Telemetry  ~/.claude/skills/pdf/.metahub.json
+    Location   ~/.claude/skills/keynote-deck
+    Telemetry  ~/.claude/skills/keynote-deck/.metahub.json
 
   Next steps
     ▸ Restart Claude Code / Claude Desktop to pick up the new skill
     ▸ Use the skill from your AI client — spans flow to developer.metahub.ai
-    ▸ Publisher-driven spans? Add `mh trace skill/pdf` to SKILL.md
+    ▸ Publisher-driven spans? Add `mh trace skill/keynote-deck` to SKILL.md
 
-  To remove: mh uninstall skills/pdf
+  To remove: mh uninstall skills/keynote-deck
 ```
 
 ```text
@@ -159,7 +185,7 @@ Read-only commands (`search`, `show`, `list`, `outdated`, `doctor`) accept a `--
 {
   "kind": "skill",
   "slug": "pdf",
-  "ref": "skills/pdf",
+  "ref": "skills/keynote-deck",
   "name": "PDF",
   "tagline": "…",
   "description": "…",
@@ -185,10 +211,10 @@ Read-only commands (`search`, `show`, `list`, `outdated`, `doctor`) accept a `--
     {
       "kind": "skill",
       "slug": "pdf",
-      "ref": "skills/pdf",
+      "ref": "skills/keynote-deck",
       "version": "0.1.0",
       "publishedSha": "…",
-      "installPath": "/Users/you/.claude/skills/pdf",
+      "installPath": "/Users/you/.claude/skills/keynote-deck",
       "installedAt": "2026-…",
       "artifactId": "art_…",
       "installId": "ins_…"
@@ -204,7 +230,7 @@ Read-only commands (`search`, `show`, `list`, `outdated`, `doctor`) accept a `--
   "count": 1,
   "available": [
     {
-      "ref": "skills/pdf",
+      "ref": "skills/keynote-deck",
       "localSha": "2964d6a",
       "remoteSha": "690f15c",
       "remoteVersion": "0.1.1",
@@ -219,11 +245,13 @@ Read-only commands (`search`, `show`, `list`, `outdated`, `doctor`) accept a `--
 
 ```json
 {
-  "ref": "skills/pdf",
+  "ref": "skills/keynote-deck",
   "installed": true,
   "pinnedSha": "…",
   "passed": 4,
   "failed": 0,
-  "checks": [{ "status": "ok", "label": "install dir", "value": "~/.claude/skills/pdf (dir)" }]
+  "checks": [
+    { "status": "ok", "label": "install dir", "value": "~/.claude/skills/keynote-deck (dir)" }
+  ]
 }
 ```

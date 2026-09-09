@@ -28,12 +28,29 @@ let authConfig = {
   registryUrl: "https://registry.test",
 };
 
+const MOCK_HOME = "/nonexistent/mh-branch-tests";
+
 vi.mock("@metahub/installer", () => ({
   get CLIENT_ADAPTERS() {
     return adapters;
   },
   wireMcpAcrossClients: (...args: unknown[]) => wireSpy(...(args as [])),
   unwireMcpAcrossClients: (...args: unknown[]) => unwireSpy(...(args as [])),
+  // The instruction-file module resolves its targets through these; a
+  // home that cannot exist keeps every target "not detected".
+  getHome: () => MOCK_HOME,
+  userConfigDir: () => `${MOCK_HOME}/.config`,
+  geminiDir: () => `${MOCK_HOME}/.gemini`,
+  codexBinary: () => null,
+  readJsonConfig: (file: string) => {
+    try {
+      const raw = fs.readFileSync(file, "utf8") as string;
+      return { state: "ok", data: JSON.parse(raw) };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { state: "absent" };
+      return { state: "invalid", error: (err as Error).message };
+    }
+  },
 }));
 
 const MOCK_DEFAULT_REGISTRY_URL = "https://registry.metahub.ai";
@@ -54,7 +71,14 @@ async function freshBootstrap() {
   return import("../src/lib/bootstrap.js");
 }
 
+beforeEach(() => {
+  // These tests drive the MCP wiring branches; the instruction-file
+  // writes are covered in instructions.test.ts against a real tmp HOME.
+  process.env.METAHUB_NO_INSTRUCTIONS = "1";
+});
+
 afterEach(() => {
+  delete process.env.METAHUB_NO_INSTRUCTIONS;
   vi.restoreAllMocks();
   adapters = [];
   wireSpy.mockClear();
