@@ -97,18 +97,191 @@ describe("wireMcpAcrossClients (clients detected)", () => {
   });
 
   it("returns manual-snippet results for YAML / TOML / UI clients", async () => {
+    process.env.METAHUB_CODEX_BIN = ""; // no codex binary → snippet path
+    try {
+      const { wireMcpAcrossClients } = await import("../src/clients");
+      const out = wireMcpAcrossClients("pdf", launch, env);
+      const manuals = out.filter((r) => r.status === "manual").map((r) => r.client);
+      expect(manuals).toEqual(expect.arrayContaining(["Continue", "Goose", "Codex CLI"]));
+      const continueRes = out.find((r) => r.client === "Continue");
+      expect(continueRes?.manualSnippet).toContain("mcpServers");
+      const codex = out.find((r) => r.client === "Codex CLI");
+      expect(codex?.manualSnippet).toContain("[mcp_servers.pdf]");
+      expect(codex?.manualSnippet).toContain("[mcp_servers.pdf.env]");
+      expect(codex?.manualSnippet).toContain('METAHUB_INGEST_API_KEY = "mhi_key"');
+      const goose = out.find((r) => r.client === "Goose");
+      expect(goose?.manualSnippet).toContain("extensions:");
+    } finally {
+      delete process.env.METAHUB_CODEX_BIN;
+    }
+  });
+
+  it("Antigravity is JSON-wired at ~/.gemini/config/mcp_config.json", async () => {
     const { wireMcpAcrossClients } = await import("../src/clients");
     const out = wireMcpAcrossClients("pdf", launch, env);
-    const manuals = out.filter((r) => r.status === "manual").map((r) => r.client);
-    expect(manuals).toEqual(
-      expect.arrayContaining(["Antigravity", "Continue", "Goose", "Codex CLI"]),
-    );
-    const continueRes = out.find((r) => r.client === "Continue");
-    expect(continueRes?.manualSnippet).toContain("mcpServers");
-    const codex = out.find((r) => r.client === "Codex CLI");
-    expect(codex?.manualSnippet).toContain("[mcp_servers.pdf]");
-    const goose = out.find((r) => r.client === "Goose");
-    expect(goose?.manualSnippet).toContain("extensions:");
+    const ag = out.find((r) => r.client === "Antigravity");
+    expect(ag?.status).toBe("wrote");
+    expect(ag?.configPath).toBe(path.join(tmp, ".gemini", "config", "mcp_config.json"));
+    const cfg = JSON.parse(fs.readFileSync(ag!.configPath, "utf8"));
+    expect(cfg.mcpServers.pdf).toMatchObject(launch);
+  });
+});
+
+describe("Antigravity legacy config", () => {
+  it("uses ~/.gemini/antigravity/mcp_config.json when only the legacy file exists", async () => {
+    const legacy = path.join(tmp, ".gemini", "antigravity", "mcp_config.json");
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.writeFileSync(legacy, ""); // Antigravity ships it empty
+    const { wireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", launch, env);
+    const ag = out.find((r) => r.client === "Antigravity");
+    expect(ag?.status).toBe("wrote");
+    expect(ag?.configPath).toBe(legacy);
+    expect(JSON.parse(fs.readFileSync(legacy, "utf8")).mcpServers).toHaveProperty("pdf");
+    // Gemini CLI is detected too (same ~/.gemini root) and gets its own file.
+    const gem = out.find((r) => r.client === "Gemini CLI");
+    expect(gem?.status).toBe("wrote");
+    expect(gem?.configPath).toBe(path.join(tmp, ".gemini", "settings.json"));
+  });
+});
+
+describe("Gemini CLI adapter", () => {
+  it("merges into ~/.gemini/settings.json and preserves other settings", async () => {
+    const file = path.join(tmp, ".gemini", "settings.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ theme: "Dracula", mcpServers: { other: {} } }));
+    const { wireMcpAcrossClients, unwireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", launch, env);
+    expect(out.find((r) => r.client === "Gemini CLI")?.status).toBe("wrote");
+    let cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(cfg.theme).toBe("Dracula");
+    expect(Object.keys(cfg.mcpServers).toSorted()).toEqual(["other", "pdf"]);
+    unwireMcpAcrossClients("pdf");
+    cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(Object.keys(cfg.mcpServers)).toEqual(["other"]);
+  });
+});
+
+describe("opencode adapter", () => {
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", { value: "linux" });
+  });
+
+  it("writes the `mcp` schema with a command array into opencode.json", async () => {
+    fs.mkdirSync(path.join(tmp, ".config", "opencode"), { recursive: true });
+    const { wireMcpAcrossClients, unwireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", launch, env);
+    const oc = out.find((r) => r.client === "opencode");
+    expect(oc?.status).toBe("wrote");
+    expect(oc?.configPath).toBe(path.join(tmp, ".config", "opencode", "opencode.json"));
+    const cfg = JSON.parse(fs.readFileSync(oc!.configPath, "utf8"));
+    expect(cfg.mcp.pdf).toEqual({
+      type: "local",
+      command: ["node", "./server.js"],
+      environment: env,
+      enabled: true,
+    });
+    unwireMcpAcrossClients("pdf");
+    expect(JSON.parse(fs.readFileSync(oc!.configPath, "utf8")).mcp).not.toHaveProperty("pdf");
+  });
+
+  it("prefers an existing opencode.jsonc over creating opencode.json", async () => {
+    const jsonc = path.join(tmp, ".config", "opencode", "opencode.jsonc");
+    fs.mkdirSync(path.dirname(jsonc), { recursive: true });
+    fs.writeFileSync(jsonc, JSON.stringify({ $schema: "https://opencode.ai/config.json" }));
+    const { wireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", launch, env);
+    const oc = out.find((r) => r.client === "opencode");
+    expect(oc?.status).toBe("wrote");
+    expect(oc?.configPath).toBe(jsonc);
+    expect(fs.existsSync(path.join(tmp, ".config", "opencode", "opencode.json"))).toBe(false);
+    const cfg = JSON.parse(fs.readFileSync(jsonc, "utf8"));
+    expect(cfg.$schema).toBe("https://opencode.ai/config.json");
+    expect(cfg.mcp.pdf.type).toBe("local");
+  });
+});
+
+describe("malformed client configs are never overwritten (issue #10)", () => {
+  it("skips a Cursor mcp.json that does not parse and leaves it byte-for-byte intact", async () => {
+    const file = path.join(tmp, ".cursor", "mcp.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const broken = '{ "mcpServers": { "keepme": { "command": "x" }, ';
+    fs.writeFileSync(file, broken);
+    const { wireMcpAcrossClients, unwireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", launch, env);
+    const cursor = out.find((r) => r.client === "Cursor");
+    expect(cursor?.status).toBe("skipped");
+    expect(cursor?.warning).toMatch(/not valid JSON/);
+    expect(fs.readFileSync(file, "utf8")).toBe(broken);
+    unwireMcpAcrossClients("pdf");
+    expect(fs.readFileSync(file, "utf8")).toBe(broken);
+  });
+
+  it("treats an empty config file as an empty object, not as corruption", async () => {
+    const file = path.join(tmp, ".cursor", "mcp.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, "\n");
+    const { wireMcpAcrossClients } = await import("../src/clients");
+    const out = wireMcpAcrossClients("pdf", launch, env);
+    expect(out.find((r) => r.client === "Cursor")?.status).toBe("wrote");
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).mcpServers).toHaveProperty("pdf");
+  });
+
+  it("readJsonConfig reports absent / ok / invalid distinctly", async () => {
+    const { readJsonConfig } = await import("../src/clients");
+    const file = path.join(tmp, "probe.json");
+    expect(readJsonConfig(file)).toEqual({ state: "absent" });
+    fs.writeFileSync(file, "[1,2]");
+    expect(readJsonConfig(file).state).toBe("invalid");
+    fs.writeFileSync(file, '{"a":1}');
+    expect(readJsonConfig(file)).toEqual({ state: "ok", data: { a: 1 } });
+  });
+});
+
+describe("Codex CLI adapter", () => {
+  function stubCodex(): { bin: string; log: string } {
+    const log = path.join(tmp, "codex-calls.log");
+    const bin = path.join(tmp, "codex");
+    fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\nexit 0\n`, { mode: 0o755 });
+    return { bin, log };
+  }
+
+  it("wires through `codex mcp add` when the binary is available", async () => {
+    if (process.platform === "win32") return;
+    fs.mkdirSync(path.join(tmp, ".codex"), { recursive: true });
+    const { bin, log } = stubCodex();
+    process.env.METAHUB_CODEX_BIN = bin;
+    try {
+      const { wireMcpAcrossClients, unwireMcpAcrossClients } = await import("../src/clients");
+      const out = wireMcpAcrossClients("pdf", launch, env);
+      const codex = out.find((r) => r.client === "Codex CLI");
+      expect(codex?.status).toBe("wrote");
+      const calls = fs.readFileSync(log, "utf8").trim().split("\n");
+      expect(calls[0]).toBe("mcp remove pdf");
+      expect(calls[1]).toBe("mcp add pdf --env METAHUB_INGEST_API_KEY=mhi_key -- node ./server.js");
+      unwireMcpAcrossClients("pdf");
+      expect(fs.readFileSync(log, "utf8").trim().split("\n").pop()).toBe("mcp remove pdf");
+    } finally {
+      delete process.env.METAHUB_CODEX_BIN;
+    }
+  });
+
+  it("falls back to the TOML snippet, with a warning, when `codex mcp add` fails", async () => {
+    if (process.platform === "win32") return;
+    fs.mkdirSync(path.join(tmp, ".codex"), { recursive: true });
+    const bin = path.join(tmp, "codex");
+    fs.writeFileSync(bin, "#!/bin/sh\necho 'boom' >&2\nexit 1\n", { mode: 0o755 });
+    process.env.METAHUB_CODEX_BIN = bin;
+    try {
+      const { wireMcpAcrossClients } = await import("../src/clients");
+      const out = wireMcpAcrossClients("pdf", launch, env);
+      const codex = out.find((r) => r.client === "Codex CLI");
+      expect(codex?.status).toBe("manual");
+      expect(codex?.manualSnippet).toContain("[mcp_servers.pdf]");
+      expect(codex?.warning).toMatch(/codex mcp add failed/);
+    } finally {
+      delete process.env.METAHUB_CODEX_BIN;
+    }
   });
 });
 
