@@ -24,7 +24,7 @@ shell installer runs the editor bootstrap automatically; npm users run
 This installs two binaries on your PATH:
 
 - **`mh`** — the CLI: `install`, `update`, `list`, `search`, `uninstall`, `login`, `trace`, `bootstrap`, `upgrade`
-- **`metahub-mcp`** — the MetaHub MCP server, so any MCP-capable AI client (Claude Code, Cursor, Antigravity, …) can search and install artifacts from inside the client. `mh bootstrap` wires it up.
+- **`metahub-mcp`** — the MetaHub MCP server, so any MCP-capable AI client (Claude Code, Cursor, Codex CLI, Gemini CLI, Antigravity, opencode, …) can search and install artifacts from inside the client. `mh bootstrap` wires it up and tells each harness to look on MetaHub first.
 
 ## Packages
 
@@ -59,7 +59,7 @@ pnpm publish:check # dry-run the exact package that will be sent to npm
 
 Node ≥ 20 (`.nvmrc`), pnpm ≥ 9. Tests are Vitest, per package under `packages/<name>/tests/`.
 
-Client state on an end-user machine lives in `~/.metahub/` — `config.json` (login token + telemetry prefs) and `installs.json` (per-install API keys). Installed artifacts land in client-specific dirs (`~/.claude/skills/<slug>/`, `~/.claude.json` for user-scoped Claude Code MCP servers, `~/.metahub/agents/<slug>/`, …).
+Client state on an end-user machine lives in `~/.metahub/` — `config.json` (login token + telemetry prefs) and `installs.json` (per-install API keys). Installed artifacts land in client-specific dirs (`~/.claude/skills/<slug>/` with a link from `~/.agents/skills/<slug>/` so Codex, Gemini CLI, Cursor, opencode and Goose see it too, `~/.claude.json` for user-scoped Claude Code MCP servers, `~/.metahub/agents/<slug>/`, …).
 
 ## License
 
