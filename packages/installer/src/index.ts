@@ -6,7 +6,7 @@
  *   - High-level install / uninstall / list orchestration
  *   - The local install ledger at `~/.metahub/installs.json`
  *   - Multi-client MCP wiring + per-kind post-install hooks
- *   - Tarball fetch / extract
+ *   - Tarball fetch / extract, and making MCP-kind installs runnable
  *   - The typed catalog client (getPublicArtifact, listPublicArtifacts)
  *
  * The library is silent — pass `onProgress` to surface progress events.
@@ -27,27 +27,40 @@ export { listInstalls, recordInstall, removeInstall, type InstalledRecord } from
 
 export {
   CLIENT_ADAPTERS,
+  codexBinary,
   wireMcpAcrossClients,
   unwireMcpAcrossClients,
+  readJsonConfig,
   type ClientAdapter,
   type ClientWriteResult,
+  type JsonConfigRead,
   type LaunchSpec,
   type McpEnv,
 } from "./clients.js";
 
-export { wireHook, unwireHook, type WireResult, type SkillMirrorResult } from "./hooks.js";
+export {
+  wireHook,
+  unwireHook,
+  refreshSkillWiring,
+  type WireResult,
+  type SkillMirrorResult,
+  type SkillMirrorStatus,
+  type SkillRefreshResult,
+} from "./hooks.js";
 
 export {
   CAPABILITY_MATRIX,
   capabilityFor,
   clientsForKind,
+  clientLabel,
+  clientIdFromLabel,
   type CapabilityRow,
   type ClientId,
   type ReloadStrategy,
   type WiringStrategy,
 } from "./capabilities.js";
 
-export { detectClient, detectedClients } from "./detection.js";
+export { CLIENT_IDS, detectClient, detectedClients } from "./detection.js";
 
 export {
   readLedger,
@@ -71,6 +84,15 @@ export {
 export { fetchAndExtractTarball, extractLocalTarball, type ExtractOptions } from "./tarball.js";
 
 export {
+  prepareMcpInstall,
+  resolveMcpEntry,
+  readMcpPackageJson,
+  type McpLaunch,
+  type McpPrepareResult,
+  type McpPrepareOptions,
+} from "./mcp-build.js";
+
+export {
   getInstallInfo,
   getPublicArtifact,
   listPublicArtifacts,
@@ -80,9 +102,17 @@ export {
 } from "./portal-api.js";
 
 export {
+  agentsSkillsDir,
+  antigravityMcpConfigPath,
+  antigravitySkillsDir,
+  claudeSettingsFile,
+  configFile,
+  configRoot,
+  geminiDir,
+  geminiSettingsFile,
+  getHome,
   installPathFor,
   installsFile,
-  claudeSettingsFile,
-  configRoot,
-  configFile,
+  openCodeConfigPath,
+  userConfigDir,
 } from "./paths.js";

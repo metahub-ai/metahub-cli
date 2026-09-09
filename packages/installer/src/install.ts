@@ -11,6 +11,7 @@ import { loadAuthConfig } from "@metahub/auth";
 import { getInstallInfo } from "./portal-api.js";
 import { installPathFor } from "./paths.js";
 import { fetchAndExtractTarball } from "./tarball.js";
+import { prepareMcpInstall } from "./mcp-build.js";
 import { wireHook, unwireHook, type SkillMirrorResult } from "./hooks.js";
 import {
   findInstall,
@@ -61,10 +62,15 @@ export interface InstallResult {
   clientsWired: ClientWriteResult[];
   /**
    * For skill installs: per-client mirror results. Empty for other
-   * kinds. Surfaces where the skill was wired (Cursor rules, Continue
-   * rules, Zed prompts) and which clients were skipped/errored.
+   * kinds. Surfaces where the skill was wired (Agent Skills dir,
+   * Antigravity, Continue rules, Zed prompts) and which clients were
+   * skipped/errored.
    */
   skillMirrors: SkillMirrorResult[];
+  /** MCP-only — preparation steps that ran (npm install / build). */
+  buildSteps: string[];
+  /** MCP-only — set when the published npm package stands in for the pinned source. */
+  buildNote?: string;
   /** Non-fatal warnings that surfaced during wiring. */
   warning?: string;
 }
@@ -78,6 +84,8 @@ export type InstallProgressEvent =
   | { stage: "resolve"; kind: ArtifactKind; slug: string }
   | { stage: "replace-existing"; path: string }
   | { stage: "download"; sha: string | null; subPath: string | null }
+  /** MCP-only: emitted before each preparation step (npm install, npm run build). */
+  | { stage: "build"; installPath: string; step: string }
   | { stage: "wire"; kind: ArtifactKind; slug: string }
   | { stage: "record"; installPath: string };
 
@@ -120,6 +128,23 @@ export async function installArtifact(opts: InstallOptions): Promise<InstallResu
   }
   fs.renameSync(tmp, dest);
 
+  // An MCP server arrives as the pinned source tree. Install its
+  // dependencies and build it so the launch command we are about to
+  // wire actually starts.
+  let buildSteps: string[] = [];
+  let buildWarning: string | undefined;
+  let buildNote: string | undefined;
+  let launchOverride: { command: string; args: string[] } | undefined;
+  if (kind === "mcp") {
+    const prep = prepareMcpInstall(dest, {
+      onStep: (step) => onProgress?.({ stage: "build", installPath: dest, step }),
+    });
+    buildSteps = prep.steps;
+    buildWarning = prep.warning;
+    buildNote = prep.note;
+    launchOverride = prep.launchOverride;
+  }
+
   const cfg = loadAuthConfig();
   onProgress?.({ stage: "wire", kind, slug });
   const wired = wireHook({
@@ -129,6 +154,7 @@ export async function installArtifact(opts: InstallOptions): Promise<InstallResu
     installId: info.installId,
     artifactId: info.artifact.id,
     portalUrl: cfg.portalUrl,
+    launch: launchOverride,
   });
 
   onProgress?.({ stage: "record", installPath: dest });
@@ -153,7 +179,11 @@ export async function installArtifact(opts: InstallOptions): Promise<InstallResu
     installPath: dest,
     clientsWired: wired.clients,
     skillMirrors: wired.skillMirrors,
-    warning: wired.warning,
+    buildSteps,
+    buildNote,
+    // The build warning is the specific one; wireHook's "entry point is
+    // missing" follows from it and would only repeat the news.
+    warning: buildWarning ?? wired.warning,
   };
 }
 
