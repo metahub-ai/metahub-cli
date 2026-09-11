@@ -17,9 +17,16 @@ Or use the shell installer:
 curl -fsSL https://metahub.ai/install.sh | sh
 ```
 
-Both options install the same `mh` CLI and bundled `metahub-mcp` server. The
-shell installer runs the editor bootstrap automatically; npm users run
-`mh bootstrap` once after installation.
+Or run the bootstrap with nothing installed globally:
+
+```bash
+npx @metahub-ai/mh bootstrap
+```
+
+All three wire the same bundled `metahub-mcp` server into every harness they
+find and add a short "look on MetaHub first" note to each harness's
+instructions. The shell installer and npx run the bootstrap for you; npm users
+run `mh bootstrap` once after installation.
 
 This installs two binaries on your PATH:
 
